@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
-import '../services/scoring_engine.dart';
-import '../models/analysis.dart';
+import '../providers/analysis_providers.dart';
 
-class UploadScreen extends StatefulWidget {
+class UploadScreen extends ConsumerStatefulWidget {
   const UploadScreen({super.key});
 
   @override
-  State<UploadScreen> createState() => _UploadScreenState();
+  ConsumerState<UploadScreen> createState() => _UploadScreenState();
 }
 
-class _UploadScreenState extends State<UploadScreen> {
+class _UploadScreenState extends ConsumerState<UploadScreen> {
   XFile? _frontPhoto;
   XFile? _sidePhoto;
   bool _isAnalyzing = false;
@@ -64,26 +64,25 @@ class _UploadScreenState extends State<UploadScreen> {
 
     setState(() => _isAnalyzing = true);
 
-    // Simulate landmark detection delay (real MediaPipe integration comes next)
-    await Future.delayed(const Duration(seconds: 2));
+    try {
+      // Currently uses demo landmarks.
+      // Next step: replace with real MediaPipe Face Mesh detection.
+      final runner = ref.read(runDemoAnalysisProvider);
+      final result = await runner(
+        frontPhotoPath: _frontPhoto!.path,
+        sidePhotoPath: _sidePhoto!.path,
+      );
 
-    // Placeholder landmarks for now
-    final dummyLandmarks = List.generate(
-      20,
-      (i) => FacialLandmark(index: i, x: 0.5, y: 0.5, z: 0.0),
-    );
-
-    final result = ScoringEngine.analyze(
-      frontLandmarks: dummyLandmarks,
-      sideLandmarks: dummyLandmarks,
-      frontPhotoPath: _frontPhoto!.path,
-      sidePhotoPath: _sidePhoto!.path,
-    );
-
-    if (!mounted) return;
-
-    setState(() => _isAnalyzing = false);
-    context.go('/result/${result.id}');
+      if (!mounted) return;
+      context.go('/result/${result.id}');
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Analysis failed: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _isAnalyzing = false);
+    }
   }
 
   @override
