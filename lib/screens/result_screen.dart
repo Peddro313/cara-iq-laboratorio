@@ -1,28 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../models/analysis.dart';
-import '../services/scoring_engine.dart';
+import '../providers/analysis_providers.dart';
 
-class ResultScreen extends StatelessWidget {
+class ResultScreen extends ConsumerWidget {
   final String analysisId;
 
   const ResultScreen({super.key, required this.analysisId});
 
-  // Temporary: generate a demo result until we have real storage
-  AnalysisResult get _demoResult {
-    final dummy = List.generate(
-      10,
-      (i) => FacialLandmark(index: i, x: 0.5, y: 0.5, z: 0),
-    );
-    return ScoringEngine.analyze(
-      frontLandmarks: dummy,
-      sideLandmarks: dummy,
-    );
-  }
-
   @override
-  Widget build(BuildContext context) {
-    final result = _demoResult;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final analysisAsync = ref.watch(analysisByIdProvider(analysisId));
 
     return Scaffold(
       appBar: AppBar(
@@ -32,65 +21,131 @@ class ResultScreen extends StatelessWidget {
           onPressed: () => context.go('/'),
         ),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Overall Score Card
-            Card(
-              color: Theme.of(context).colorScheme.primaryContainer,
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  children: [
-                    Text(
-                      'Overall Score',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      result.overallScore.toStringAsFixed(1),
-                      style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                    ),
-                    Text(
-                      result.overallLabel,
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                  ],
-                ),
+      body: analysisAsync.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (err, _) => Center(child: Text('Error: $err')),
+        data: (result) {
+          if (result == null) {
+            return const Center(child: Text('Analysis not found'));
+          }
+          return _ResultBody(result: result);
+        },
+      ),
+    );
+  }
+}
+
+class _ResultBody extends StatelessWidget {
+  final AnalysisResult result;
+
+  const _ResultBody({required this.result});
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Overall Score Card
+          Card(
+            color: Theme.of(context).colorScheme.primaryContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                children: [
+                  Text(
+                    'Overall Score',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    result.overallScore.toStringAsFixed(1),
+                    style: Theme.of(context).textTheme.displayLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                  ),
+                  Text(
+                    result.overallLabel,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Analyzed on ${result.createdAt.toLocal().toString().substring(0, 16)}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 24),
+          ),
+          const SizedBox(height: 24),
 
+          Text(
+            'Pillars',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+          const SizedBox(height: 12),
+
+          _PillarCard(score: result.harmony),
+          _PillarCard(score: result.structure),
+          _PillarCard(score: result.dimorphism),
+          _PillarCard(score: result.features),
+
+          if (result.ratios.isNotEmpty) ...[
+            const SizedBox(height: 24),
             Text(
-              'Pillars',
+              'Key Ratios',
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
             ),
             const SizedBox(height: 12),
-
-            _PillarCard(score: result.harmony),
-            _PillarCard(score: result.structure),
-            _PillarCard(score: result.dimorphism),
-            _PillarCard(score: result.features),
-
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: () => context.go('/'),
-              child: const Text('Back to Home'),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton(
-              onPressed: () => context.push('/history'),
-              child: const Text('View Progress History'),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: result.ratios.entries.map((e) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              e.key.replaceAll('_', ' '),
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          ),
+                          Text(
+                            e.value.toStringAsFixed(3),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
             ),
           ],
-        ),
+
+          const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: () => context.go('/'),
+            child: const Text('Back to Home'),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton(
+            onPressed: () => context.push('/history'),
+            child: const Text('View Progress History'),
+          ),
+        ],
       ),
     );
   }
