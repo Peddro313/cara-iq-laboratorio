@@ -6,10 +6,21 @@ import 'screens/home_screen.dart';
 import 'screens/upload_screen.dart';
 import 'screens/result_screen.dart';
 import 'screens/history_screen.dart';
+import 'screens/onboarding_screen.dart';
+import 'screens/examples_screen.dart';
+import 'services/profile_repository.dart';
 
 final _router = GoRouter(
-  initialLocation: '/',
+  initialLocation: '/splash',
   routes: [
+    GoRoute(
+      path: '/splash',
+      builder: (context, state) => const _SplashGate(),
+    ),
+    GoRoute(
+      path: '/onboarding',
+      builder: (context, state) => const OnboardingScreen(),
+    ),
     GoRoute(
       path: '/',
       builder: (context, state) => const HomeScreen(),
@@ -29,6 +40,10 @@ final _router = GoRouter(
       path: '/history',
       builder: (context, state) => const HistoryScreen(),
     ),
+    GoRoute(
+      path: '/examples',
+      builder: (context, state) => const ExamplesScreen(),
+    ),
   ],
 );
 
@@ -44,6 +59,59 @@ class CaraIqApp extends ConsumerWidget {
       darkTheme: AppTheme.dark,
       themeMode: ThemeMode.system,
       routerConfig: _router,
+    );
+  }
+}
+
+class _SplashGate extends StatefulWidget {
+  const _SplashGate();
+
+  @override
+  State<_SplashGate> createState() => _SplashGateState();
+}
+
+class _SplashGateState extends State<_SplashGate> {
+  @override
+  void initState() {
+    super.initState();
+    _go();
+  }
+
+  Future<void> _go() async {
+    await Future.delayed(const Duration(milliseconds: 600));
+    final done = await ProfileRepository().isOnboardingDone();
+    if (!mounted) return;
+    context.go(done ? '/' : '/onboarding');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              'Cara IQ',
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.5,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Laboratório',
+              style: TextStyle(color: Colors.grey[500], letterSpacing: 2),
+            ),
+            const SizedBox(height: 32),
+            const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
