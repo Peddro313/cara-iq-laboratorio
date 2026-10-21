@@ -16,26 +16,33 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   XFile? _frontPhoto;
   XFile? _sidePhoto;
   bool _isAnalyzing = false;
+  String _statusText = '';
   final _picker = ImagePicker();
 
   Future<void> _pickImage(bool isFront) async {
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.camera_alt),
-              title: const Text('Take Photo'),
-              onTap: () => Navigator.pop(ctx, ImageSource.camera),
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library),
-              title: const Text('Choose from Gallery'),
-              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
-            ),
-          ],
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.camera_alt),
+                title: const Text('Take Photo'),
+                onTap: () => Navigator.pop(ctx, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Choose from Gallery'),
+                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -62,12 +69,13 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   Future<void> _runAnalysis() async {
     if (_frontPhoto == null || _sidePhoto == null) return;
 
-    setState(() => _isAnalyzing = true);
+    setState(() {
+      _isAnalyzing = true;
+      _statusText = 'Detecting face…';
+    });
 
     try {
-      // Currently uses demo landmarks.
-      // Next step: replace with real MediaPipe Face Mesh detection.
-      final runner = ref.read(runDemoAnalysisProvider);
+      final runner = ref.read(runPhotoAnalysisProvider);
       final result = await runner(
         frontPhotoPath: _frontPhoto!.path,
         sidePhotoPath: _sidePhoto!.path,
@@ -78,15 +86,26 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Analysis failed: $e')),
+        SnackBar(
+          content: Text('Analysis failed: $e'),
+          backgroundColor: Colors.red.shade700,
+        ),
       );
     } finally {
-      if (mounted) setState(() => _isAnalyzing = false);
+      if (mounted) {
+        setState(() {
+          _isAnalyzing = false;
+          _statusText = '';
+        });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final canAnalyze =
+        _frontPhoto != null && _sidePhoto != null && !_isAnalyzing;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Upload Photos'),
@@ -97,25 +116,25 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                'For best results',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.4),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  'For best results\n'
+                  '• Neutral expression, mouth closed\n'
+                  '• Good, even lighting\n'
+                  '• Camera at eye level\n'
+                  '• Front: looking straight at camera\n'
+                  '• Side: true profile (90°)',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        height: 1.45,
+                      ),
+                ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                '• Neutral expression, mouth closed\n'
-                '• Good, even lighting\n'
-                '• Camera at eye level\n'
-                '• Front: looking straight at camera\n'
-                '• Side: true profile (90°)',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.grey[700],
-                      height: 1.5,
-                    ),
-              ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
               Expanded(
                 child: Row(
                   children: [
@@ -123,7 +142,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                       child: _PhotoSlot(
                         label: 'Front',
                         photo: _frontPhoto,
-                        onTap: () => _pickImage(true),
+                        onTap: _isAnalyzing ? null : () => _pickImage(true),
                       ),
                     ),
                     const SizedBox(width: 16),
@@ -131,17 +150,23 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                       child: _PhotoSlot(
                         label: 'Side Profile',
                         photo: _sidePhoto,
-                        onTap: () => _pickImage(false),
+                        onTap: _isAnalyzing ? null : () => _pickImage(false),
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 24),
+              if (_statusText.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _statusText,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+              ],
+              const SizedBox(height: 16),
               ElevatedButton(
-                onPressed: (_frontPhoto != null && _sidePhoto != null && !_isAnalyzing)
-                    ? _runAnalysis
-                    : null,
+                onPressed: canAnalyze ? _runAnalysis : null,
                 style: ElevatedButton.styleFrom(
                   minimumSize: const Size.fromHeight(56),
                 ),
@@ -149,7 +174,10 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                     ? const SizedBox(
                         height: 24,
                         width: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
                       )
                     : const Text('Analyze Face'),
               ),
@@ -164,7 +192,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
 class _PhotoSlot extends StatelessWidget {
   final String label;
   final XFile? photo;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   const _PhotoSlot({
     required this.label,
@@ -174,12 +202,14 @@ class _PhotoSlot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hasPhoto = photo != null;
     return GestureDetector(
       onTap: onTap,
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
         decoration: BoxDecoration(
           border: Border.all(
-            color: photo != null
+            color: hasPhoto
                 ? Theme.of(context).colorScheme.primary
                 : Colors.grey.shade300,
             width: 2,
@@ -187,16 +217,8 @@ class _PhotoSlot extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           color: Colors.grey.shade50,
         ),
-        child: photo == null
-            ? Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.add_a_photo, size: 40, color: Colors.grey[400]),
-                  const SizedBox(height: 8),
-                  Text(label, style: TextStyle(color: Colors.grey[600])),
-                ],
-              )
-            : ClipRRect(
+        child: hasPhoto
+            ? ClipRRect(
                 borderRadius: BorderRadius.circular(14),
                 child: Image.file(
                   File(photo!.path),
@@ -204,6 +226,14 @@ class _PhotoSlot extends StatelessWidget {
                   width: double.infinity,
                   height: double.infinity,
                 ),
+              )
+            : Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.add_a_photo, size: 40, color: Colors.grey[400]),
+                  const SizedBox(height: 8),
+                  Text(label, style: TextStyle(color: Colors.grey[600])),
+                ],
               ),
       ),
     );
