@@ -18,21 +18,21 @@ class HomeScreen extends StatelessWidget {
         ],
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const SizedBox(height: 24),
+              const SizedBox(height: 12),
               Text(
-                'Your Face.\nMeasured. Tracked. Improved.',
+                'Your Face.\nMeasured. Tracked.\nImproved.',
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                       fontWeight: FontWeight.bold,
-                      height: 1.3,
+                      height: 1.25,
                     ),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               Text(
                 'Get a detailed facial analysis across four pillars and track your progress over time.',
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
@@ -40,31 +40,31 @@ class HomeScreen extends StatelessWidget {
                     ),
                 textAlign: TextAlign.center,
               ),
-              const Spacer(),
-              _FeatureCard(
+              const SizedBox(height: 28),
+              const _FeatureCard(
                 icon: Icons.face_retouching_natural,
                 title: 'Harmony',
                 subtitle: 'Proportions & balance',
               ),
-              const SizedBox(height: 12),
-              _FeatureCard(
+              const SizedBox(height: 10),
+              const _FeatureCard(
                 icon: Icons.architecture,
                 title: 'Structure',
                 subtitle: 'Jawline & bone definition',
               ),
-              const SizedBox(height: 12),
-              _FeatureCard(
+              const SizedBox(height: 10),
+              const _FeatureCard(
                 icon: Icons.people_outline,
                 title: 'Dimorphism',
                 subtitle: 'Gender-typical traits',
               ),
-              const SizedBox(height: 12),
-              _FeatureCard(
+              const SizedBox(height: 10),
+              const _FeatureCard(
                 icon: Icons.auto_awesome,
                 title: 'Features',
                 subtitle: 'Surface & detail quality',
               ),
-              const Spacer(),
+              const SizedBox(height: 32),
               ElevatedButton.icon(
                 onPressed: () => context.push('/upload'),
                 icon: const Icon(Icons.camera_alt),
@@ -74,11 +74,13 @@ class HomeScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              TextButton(
+              OutlinedButton(
                 onPressed: () => context.push('/history'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(52),
+                ),
                 child: const Text('View Progress'),
               ),
-              const SizedBox(height: 24),
             ],
           ),
         ),
@@ -101,6 +103,11 @@ class _FeatureCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
       child: ListTile(
         leading: CircleAvatar(
           backgroundColor: Theme.of(context).colorScheme.primaryContainer,
