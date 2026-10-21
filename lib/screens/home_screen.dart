@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../theme/app_theme.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -7,13 +8,13 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppTheme.bg,
       appBar: AppBar(
         title: const Text('Cara IQ Laboratório'),
         actions: [
           IconButton(
             icon: const Icon(Icons.history_outlined),
             onPressed: () => context.push('/history'),
-            tooltip: 'Progress',
           ),
         ],
       ),
@@ -23,22 +24,20 @@ class HomeScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               Text(
                 'Your face.\nMeasured & tracked.',
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                       fontWeight: FontWeight.w600,
-                      height: 1.25,
+                      height: 1.2,
                       letterSpacing: -0.4,
                     ),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 10),
-              Text(
+              const Text(
                 'Four pillars. Clear scores. Progress over time.',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.grey[600],
-                    ),
+                style: TextStyle(color: AppTheme.textMuted),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 28),
@@ -77,16 +76,17 @@ class HomeScreen extends StatelessWidget {
               const SizedBox(height: 10),
               OutlinedButton.icon(
                 onPressed: () => context.push('/examples'),
-                icon: const Icon(Icons.photo_library_outlined),
-                label: const Text('Reference examples'),
+                icon: const Icon(Icons.grid_view_rounded),
+                label: const Text('Reference faces'),
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size.fromHeight(50),
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
               TextButton(
                 onPressed: () => context.push('/history'),
-                child: const Text('View progress'),
+                child: const Text('View progress',
+                    style: TextStyle(color: AppTheme.textMuted)),
               ),
             ],
           ),
@@ -109,14 +109,19 @@ class _FeatureCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.border),
+      ),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.6),
-          child: Icon(icon, color: Theme.of(context).colorScheme.primary, size: 22),
+          backgroundColor: AppTheme.primarySoft.withOpacity(0.5),
+          child: Icon(icon, color: AppTheme.primary, size: 22),
         ),
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Text(subtitle),
+        subtitle: Text(subtitle, style: const TextStyle(color: AppTheme.textMuted)),
       ),
     );
   }
