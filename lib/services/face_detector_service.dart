@@ -1,18 +1,19 @@
-import 'dart:io';
-import 'dart:math' as math;
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import '../models/analysis.dart';
 import 'landmark_service.dart';
 
-/// Detects faces with Google ML Kit and maps landmarks into our format.
+/// Detects a face with Google ML Kit and builds reliable landmarks
+/// in **normalized 0–1 coordinates** relative to the face bounding box
+/// (so off-center faces still score correctly).
 class FaceDetectorService {
   FaceDetectorService() {
     _detector = FaceDetector(
       options: FaceDetectorOptions(
         enableContours: true,
         enableLandmarks: true,
+        enableClassification: false,
         performanceMode: FaceDetectorMode.accurate,
-        minFaceSize: 0.15,
+        minFaceSize: 0.1,
       ),
     );
   }
@@ -24,153 +25,183 @@ class FaceDetectorService {
     final faces = await _detector.processImage(input);
 
     if (faces.isEmpty) {
-      throw Exception('No face detected. Use a clear front-facing photo with good lighting.');
+      throw Exception(
+        'No face detected. Use a clear photo with the full face visible.',
+      );
     }
 
+    // Largest face (works even if not centered)
+    faces.sort(
+      (a, b) => (b.boundingBox.width * b.boundingBox.height)
+          .compareTo(a.boundingBox.width * b.boundingBox.height),
+    );
     final face = faces.first;
-    return _mapFaceToLandmarks(face);
+
+    final box = face.boundingBox;
+    if (box.width < 40 || box.height < 40) {
+      throw Exception('Face is too small in the frame. Move closer.');
+    }
+
+    return _buildLandmarks(face);
   }
 
-  List<FacialLandmark> _mapFaceToLandmarks(Face face) {
+  /// Normalize image-pixel point → 0–1 relative to face box
+  FacialLandmark _n(int index, double x, double y, double left, double top,
+      double w, double h) {
+    return FacialLandmark(
+      index: index,
+      x: ((x - left) / w).clamp(0.0, 1.0),
+      y: ((y - top) / h).clamp(0.0, 1.0),
+      z: 0,
+    );
+  }
+
+  List<FacialLandmark> _buildLandmarks(Face face) {
+    final box = face.boundingBox;
+    final left = box.left;
+    final top = box.top;
+    final w = box.width;
+    final h = box.height;
+
     final points = <FacialLandmark>[];
 
-    void addLandmark(FaceLandmarkType type, int index) {
+    void addLm(FaceLandmarkType type, int index) {
       final lm = face.landmarks[type];
-      if (lm != null) {
-        points.add(FacialLandmark(
-          index: index,
-          x: lm.position.x.toDouble(),
-          y: lm.position.y.toDouble(),
-          z: 0,
-        ));
-      }
+      if (lm == null) return;
+      points.add(_n(
+        index,
+        lm.position.x.toDouble(),
+        lm.position.y.toDouble(),
+        left,
+        top,
+        w,
+        h,
+      ));
     }
 
-    // Map ML Kit landmarks to our MediaPipe-style indices
-    addLandmark(FaceLandmarkType.leftEye, FaceLandmarkIndex.leftEyeOuter);
-    addLandmark(FaceLandmarkType.rightEye, FaceLandmarkIndex.rightEyeOuter);
-    addLandmark(FaceLandmarkType.noseBase, FaceLandmarkIndex.noseTip);
-    addLandmark(FaceLandmarkType.leftMouth, FaceLandmarkIndex.mouthLeft);
-    addLandmark(FaceLandmarkType.rightMouth, FaceLandmarkIndex.mouthRight);
-    addLandmark(FaceLandmarkType.leftCheek, FaceLandmarkIndex.leftCheek);
-    addLandmark(FaceLandmarkType.rightCheek, FaceLandmarkIndex.rightCheek);
-    addLandmark(FaceLandmarkType.leftEar, FaceLandmarkIndex.leftJawAngle);
-    addLandmark(FaceLandmarkType.rightEar, FaceLandmarkIndex.rightJawAngle);
+    addLm(FaceLandmarkType.leftEye, FaceLandmarkIndex.leftEyeOuter);
+    addLm(FaceLandmarkType.rightEye, FaceLandmarkIndex.rightEyeOuter);
+    addLm(FaceLandmarkType.noseBase, FaceLandmarkIndex.noseTip);
+    addLm(FaceLandmarkType.leftMouth, FaceLandmarkIndex.mouthLeft);
+    addLm(FaceLandmarkType.rightMouth, FaceLandmarkIndex.mouthRight);
+    addLm(FaceLandmarkType.leftCheek, FaceLandmarkIndex.leftCheek);
+    addLm(FaceLandmarkType.rightCheek, FaceLandmarkIndex.rightCheek);
+    addLm(FaceLandmarkType.leftEar, FaceLandmarkIndex.leftJawAngle);
+    addLm(FaceLandmarkType.rightEar, FaceLandmarkIndex.rightJawAngle);
 
-    // Contours give denser geometry
-    void addContour(FaceContourType type, int startIndex) {
-      final contour = face.contours[type];
-      if (contour == null) return;
-      for (var i = 0; i < contour.points.length; i++) {
-        final p = contour.points[i];
-        points.add(FacialLandmark(
-          index: startIndex + i,
-          x: p.x.toDouble(),
-          y: p.y.toDouble(),
-          z: 0,
-        ));
+    // Face oval contour → forehead + chin + better cheeks/jaw
+    final oval = face.contours[FaceContourType.face]?.points;
+    if (oval != null && oval.isNotEmpty) {
+      var topP = oval.first;
+      var bottomP = oval.first;
+      var leftP = oval.first;
+      var rightP = oval.first;
+      for (final p in oval) {
+        if (p.y < topP.y) topP = p;
+        if (p.y > bottomP.y) bottomP = p;
+        if (p.x < leftP.x) leftP = p;
+        if (p.x > rightP.x) rightP = p;
       }
-    }
+      points.add(_n(FaceLandmarkIndex.foreheadTop, topP.x.toDouble(),
+          topP.y.toDouble(), left, top, w, h));
+      points.add(_n(FaceLandmarkIndex.chin, bottomP.x.toDouble(),
+          bottomP.y.toDouble(), left, top, w, h));
 
-    addContour(FaceContourType.face, 1000);
-    addContour(FaceContourType.leftEyebrowTop, 1100);
-    addContour(FaceContourType.rightEyebrowTop, 1200);
-    addContour(FaceContourType.upperLipTop, 1300);
-    addContour(FaceContourType.lowerLipBottom, 1400);
-    addContour(FaceContourType.noseBridge, 1500);
-    addContour(FaceContourType.noseBottom, 1600);
-
-    // Derive key points from bounding box + contours when landmarks are sparse
-    final box = face.boundingBox;
-    final cx = box.center.dx;
-    final top = box.top;
-    final bottom = box.bottom;
-
-    // Forehead / chin approximations from face contour or box
-    final faceContour = face.contours[FaceContourType.face];
-    if (faceContour != null && faceContour.points.isNotEmpty) {
-      final pts = faceContour.points;
-      var topPt = pts.first;
-      var bottomPt = pts.first;
-      for (final p in pts) {
-        if (p.y < topPt.y) topPt = p;
-        if (p.y > bottomPt.y) bottomPt = p;
+      // Approximate jaw angles from lower third of oval
+      final lower = oval.where((p) => p.y > top + h * 0.55).toList();
+      if (lower.length >= 2) {
+        var jl = lower.first;
+        var jr = lower.first;
+        for (final p in lower) {
+          if (p.x < jl.x) jl = p;
+          if (p.x > jr.x) jr = p;
+        }
+        points.add(_n(FaceLandmarkIndex.leftJawAngle, jl.x.toDouble(),
+            jl.y.toDouble(), left, top, w, h));
+        points.add(_n(FaceLandmarkIndex.rightJawAngle, jr.x.toDouble(),
+            jr.y.toDouble(), left, top, w, h));
       }
-      points.add(FacialLandmark(
-        index: FaceLandmarkIndex.foreheadTop,
-        x: topPt.x.toDouble(),
-        y: topPt.y.toDouble(),
-        z: 0,
-      ));
-      points.add(FacialLandmark(
-        index: FaceLandmarkIndex.chin,
-        x: bottomPt.x.toDouble(),
-        y: bottomPt.y.toDouble(),
-        z: 0,
-      ));
     } else {
-      points.add(FacialLandmark(
-        index: FaceLandmarkIndex.foreheadTop,
-        x: cx,
-        y: top,
-        z: 0,
+      // Box-based fallback
+      points.add(_n(FaceLandmarkIndex.foreheadTop, left + w / 2, top, left, top, w, h));
+      points.add(_n(FaceLandmarkIndex.chin, left + w / 2, top + h, left, top, w, h));
+    }
+
+    // Nose bridge from contour
+    final bridge = face.contours[FaceContourType.noseBridge]?.points;
+    if (bridge != null && bridge.isNotEmpty) {
+      final p = bridge.first;
+      points.add(_n(FaceLandmarkIndex.noseBridge, p.x.toDouble(), p.y.toDouble(),
+          left, top, w, h));
+    } else {
+      // Midpoint between eyes and nose tip
+      final le = face.landmarks[FaceLandmarkType.leftEye];
+      final re = face.landmarks[FaceLandmarkType.rightEye];
+      final nose = face.landmarks[FaceLandmarkType.noseBase];
+      if (le != null && re != null && nose != null) {
+        final mx = (le.position.x + re.position.x) / 2;
+        final my = (le.position.y + re.position.y) / 2;
+        points.add(_n(
+          FaceLandmarkIndex.noseBridge,
+          mx,
+          (my + nose.position.y) / 2,
+          left,
+          top,
+          w,
+          h,
+        ));
+      }
+    }
+
+    // Nose width from nose bottom contour
+    final noseBottom = face.contours[FaceContourType.noseBottom]?.points;
+    if (noseBottom != null && noseBottom.length >= 2) {
+      var nl = noseBottom.first;
+      var nr = noseBottom.first;
+      for (final p in noseBottom) {
+        if (p.x < nl.x) nl = p;
+        if (p.x > nr.x) nr = p;
+      }
+      points.add(_n(FaceLandmarkIndex.noseLeft, nl.x.toDouble(), nl.y.toDouble(),
+          left, top, w, h));
+      points.add(_n(FaceLandmarkIndex.noseRight, nr.x.toDouble(),
+          nr.y.toDouble(), left, top, w, h));
+    }
+
+    // Inner eye corners approximated between left/right eye landmarks
+    final le = face.landmarks[FaceLandmarkType.leftEye];
+    final re = face.landmarks[FaceLandmarkType.rightEye];
+    if (le != null && re != null) {
+      final midX = (le.position.x + re.position.x) / 2;
+      points.add(_n(
+        FaceLandmarkIndex.leftEyeInner,
+        (le.position.x + midX) / 2,
+        le.position.y.toDouble(),
+        left,
+        top,
+        w,
+        h,
       ));
-      points.add(FacialLandmark(
-        index: FaceLandmarkIndex.chin,
-        x: cx,
-        y: bottom,
-        z: 0,
+      points.add(_n(
+        FaceLandmarkIndex.rightEyeInner,
+        (re.position.x + midX) / 2,
+        re.position.y.toDouble(),
+        left,
+        top,
+        w,
+        h,
       ));
     }
 
-    // Nose bridge from contour or midpoint
-    final noseBridge = face.contours[FaceContourType.noseBridge];
-    if (noseBridge != null && noseBridge.points.isNotEmpty) {
-      final p = noseBridge.points.first;
-      points.add(FacialLandmark(
-        index: FaceLandmarkIndex.noseBridge,
-        x: p.x.toDouble(),
-        y: p.y.toDouble(),
-        z: 0,
-      ));
-    }
-
-    // Inner eye approx from eye positions
-    final leftEye = face.landmarks[FaceLandmarkType.leftEye];
-    final rightEye = face.landmarks[FaceLandmarkType.rightEye];
-    if (leftEye != null && rightEye != null) {
-      final midX = (leftEye.position.x + rightEye.position.x) / 2;
-      points.add(FacialLandmark(
-        index: FaceLandmarkIndex.leftEyeInner,
-        x: (leftEye.position.x + midX) / 2,
-        y: leftEye.position.y.toDouble(),
-        z: 0,
-      ));
-      points.add(FacialLandmark(
-        index: FaceLandmarkIndex.rightEyeInner,
-        x: (rightEye.position.x + midX) / 2,
-        y: rightEye.position.y.toDouble(),
-        z: 0,
-      ));
-    }
-
-    // Nose left/right from nose bottom contour
-    final noseBottom = face.contours[FaceContourType.noseBottom];
-    if (noseBottom != null && noseBottom.points.length >= 2) {
-      final leftmost = noseBottom.points.reduce((a, b) => a.x < b.x ? a : b);
-      final rightmost = noseBottom.points.reduce((a, b) => a.x > b.x ? a : b);
-      points.add(FacialLandmark(
-        index: FaceLandmarkIndex.noseLeft,
-        x: leftmost.x.toDouble(),
-        y: leftmost.y.toDouble(),
-        z: 0,
-      ));
-      points.add(FacialLandmark(
-        index: FaceLandmarkIndex.noseRight,
-        x: rightmost.x.toDouble(),
-        y: rightmost.y.toDouble(),
-        z: 0,
-      ));
+    // Ensure cheeks exist
+    final hasLeftCheek =
+        points.any((p) => p.index == FaceLandmarkIndex.leftCheek);
+    final hasRightCheek =
+        points.any((p) => p.index == FaceLandmarkIndex.rightCheek);
+    if (!hasLeftCheek || !hasRightCheek) {
+      points.add(_n(FaceLandmarkIndex.leftCheek, left, top + h * 0.45, left, top, w, h));
+      points.add(_n(
+          FaceLandmarkIndex.rightCheek, left + w, top + h * 0.45, left, top, w, h));
     }
 
     return points;
