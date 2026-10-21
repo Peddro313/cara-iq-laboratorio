@@ -8,42 +8,40 @@ import 'screens/result_screen.dart';
 import 'screens/history_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/examples_screen.dart';
+import 'screens/analyzing_screen.dart';
+import 'screens/pillar_screen.dart';
 import 'services/profile_repository.dart';
 
 final _router = GoRouter(
   initialLocation: '/splash',
   routes: [
+    GoRoute(path: '/splash', builder: (c, s) => const _SplashGate()),
+    GoRoute(path: '/onboarding', builder: (c, s) => const OnboardingScreen()),
+    GoRoute(path: '/', builder: (c, s) => const HomeScreen()),
+    GoRoute(path: '/upload', builder: (c, s) => const UploadScreen()),
     GoRoute(
-      path: '/splash',
-      builder: (context, state) => const _SplashGate(),
-    ),
-    GoRoute(
-      path: '/onboarding',
-      builder: (context, state) => const OnboardingScreen(),
-    ),
-    GoRoute(
-      path: '/',
-      builder: (context, state) => const HomeScreen(),
-    ),
-    GoRoute(
-      path: '/upload',
-      builder: (context, state) => const UploadScreen(),
-    ),
-    GoRoute(
-      path: '/result/:id',
-      builder: (context, state) {
-        final id = state.pathParameters['id']!;
-        return ResultScreen(analysisId: id);
+      path: '/analyzing',
+      builder: (c, s) {
+        final extra = s.extra as Map<String, String>?;
+        return AnalyzingScreen(
+          frontPath: extra?['front'] ?? '',
+          sidePath: extra?['side'] ?? '',
+        );
       },
     ),
     GoRoute(
-      path: '/history',
-      builder: (context, state) => const HistoryScreen(),
+      path: '/result/:id',
+      builder: (c, s) => ResultScreen(analysisId: s.pathParameters['id']!),
     ),
     GoRoute(
-      path: '/examples',
-      builder: (context, state) => const ExamplesScreen(),
+      path: '/pillar/:id/:pillar',
+      builder: (c, s) => PillarScreen(
+        analysisId: s.pathParameters['id']!,
+        pillarKey: s.pathParameters['pillar']!,
+      ),
     ),
+    GoRoute(path: '/history', builder: (c, s) => const HistoryScreen()),
+    GoRoute(path: '/examples', builder: (c, s) => const ExamplesScreen()),
   ],
 );
 
@@ -55,9 +53,9 @@ class CaraIqApp extends ConsumerWidget {
     return MaterialApp.router(
       title: 'Cara IQ Laboratório',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light,
+      theme: AppTheme.dark,
       darkTheme: AppTheme.dark,
-      themeMode: ThemeMode.system,
+      themeMode: ThemeMode.dark,
       routerConfig: _router,
     );
   }
@@ -65,7 +63,6 @@ class CaraIqApp extends ConsumerWidget {
 
 class _SplashGate extends StatefulWidget {
   const _SplashGate();
-
   @override
   State<_SplashGate> createState() => _SplashGateState();
 }
@@ -78,7 +75,7 @@ class _SplashGateState extends State<_SplashGate> {
   }
 
   Future<void> _go() async {
-    await Future.delayed(const Duration(milliseconds: 600));
+    await Future.delayed(const Duration(milliseconds: 700));
     final done = await ProfileRepository().isOnboardingDone();
     if (!mounted) return;
     context.go(done ? '/' : '/onboarding');
@@ -87,6 +84,7 @@ class _SplashGateState extends State<_SplashGate> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppTheme.bg,
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -99,14 +97,18 @@ class _SplashGateState extends State<_SplashGate> {
                   ),
             ),
             const SizedBox(height: 8),
-            Text(
-              'Laboratório',
-              style: TextStyle(color: Colors.grey[500], letterSpacing: 2),
+            const Text(
+              'LABORATÓRIO',
+              style: TextStyle(
+                color: AppTheme.textMuted,
+                letterSpacing: 3,
+                fontSize: 12,
+              ),
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 36),
             const SizedBox(
-              width: 24,
-              height: 24,
+              width: 22,
+              height: 22,
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
           ],
