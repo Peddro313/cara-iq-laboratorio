@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../models/user_profile.dart';
 import '../services/profile_repository.dart';
+import '../theme/app_theme.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -10,9 +11,12 @@ class OnboardingScreen extends StatefulWidget {
   State<OnboardingScreen> createState() => _OnboardingScreenState();
 }
 
-class _OnboardingScreenState extends State<OnboardingScreen> {
+class _OnboardingScreenState extends State<OnboardingScreen>
+    with TickerProviderStateMixin {
   final _pageController = PageController();
   int _step = 0;
+  late final AnimationController _fadeCtrl;
+  late final Animation<double> _fade;
 
   final _nameCtrl = TextEditingController();
   String _gender = '';
@@ -29,16 +33,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     'TikTok / Reels',
     'Instagram',
     'YouTube',
-    'Friend / word of mouth',
-    'Search / Google',
+    'Friend',
+    'Google',
     'Other',
   ];
   static const _reasons = [
-    'See my facial rating / score',
-    'Get tips to improve',
-    'Track progress over time',
-    'Compare features / learn',
-    'Curiosity',
+    'See my rating',
+    'Get improvement tips',
+    'Track progress',
+    'Learn about features',
+    'Just curious',
   ];
   static const _focusOptions = [
     'Nose',
@@ -46,62 +50,71 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     'Jaw / chin',
     'Eyes',
     'Skin',
-    'Hairline / forehead',
+    'Hairline',
     'Cheekbones',
-    'Overall harmony',
+    'Harmony',
     'Height / posture',
   ];
   static const _freqOptions = [
-    'Rarely or never',
-    'A few times a month',
-    'A few times a week',
+    'Rarely',
+    'Few times / month',
+    'Few times / week',
     'Daily',
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _fadeCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    _fade = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeOut);
+    _fadeCtrl.forward();
+  }
+
+  @override
   void dispose() {
     _pageController.dispose();
+    _fadeCtrl.dispose();
     _nameCtrl.dispose();
     _ageCtrl.dispose();
     _heightCtrl.dispose();
     super.dispose();
   }
 
+  Future<void> _goTo(int step) async {
+    await _fadeCtrl.reverse();
+    setState(() => _step = step);
+    _pageController.jumpToPage(step);
+    _fadeCtrl.forward();
+  }
+
   void _next() {
-    if (_step < 3) {
-      setState(() => _step++);
-      _pageController.animateToPage(
-        _step,
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.easeOutCubic,
-      );
+    if (_step < 4) {
+      _goTo(_step + 1);
     } else {
       _finish();
     }
   }
 
   void _back() {
-    if (_step > 0) {
-      setState(() => _step--);
-      _pageController.animateToPage(
-        _step,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOutCubic,
-      );
-    }
+    if (_step > 0) _goTo(_step - 1);
   }
 
   bool get _canContinue {
     switch (_step) {
       case 0:
+        return true; // welcome
+      case 1:
         return _nameCtrl.text.trim().isNotEmpty &&
             _gender.isNotEmpty &&
             int.tryParse(_ageCtrl.text) != null;
-      case 1:
-        return _heardFrom.isNotEmpty && _installReason.isNotEmpty;
       case 2:
-        return _focusAreas.isNotEmpty;
+        return _heardFrom.isNotEmpty && _installReason.isNotEmpty;
       case 3:
+        return _focusAreas.isNotEmpty;
+      case 4:
         return _skincare.isNotEmpty && _exercise.isNotEmpty;
       default:
         return false;
@@ -129,22 +142,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppTheme.bg,
       body: SafeArea(
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
               child: Row(
-                children: List.generate(4, (i) {
+                children: List.generate(5, (i) {
                   return Expanded(
                     child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 250),
-                      margin: EdgeInsets.only(right: i < 3 ? 6 : 0),
-                      height: 4,
+                      duration: const Duration(milliseconds: 350),
+                      curve: Curves.easeOutCubic,
+                      margin: EdgeInsets.only(right: i < 4 ? 6 : 0),
+                      height: 3,
                       decoration: BoxDecoration(
-                        color: i <= _step
-                            ? Theme.of(context).colorScheme.primary
-                            : Colors.grey.shade200,
+                        color: i <= _step ? AppTheme.primary : AppTheme.border,
                         borderRadius: BorderRadius.circular(4),
                       ),
                     ),
@@ -153,36 +166,49 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ),
             ),
             Expanded(
-              child: PageView(
-                controller: _pageController,
-                physics: const NeverScrollableScrollPhysics(),
-                children: [
-                  _stepBasics(),
-                  _stepWhy(),
-                  _stepFocus(),
-                  _stepHabits(),
-                ],
+              child: FadeTransition(
+                opacity: _fade,
+                child: PageView(
+                  controller: _pageController,
+                  physics: const NeverScrollableScrollPhysics(),
+                  children: [
+                    _welcome(),
+                    _aboutYou(),
+                    _whyHere(),
+                    _focus(),
+                    _habits(),
+                  ],
+                ),
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
               child: Row(
                 children: [
                   if (_step > 0)
                     TextButton(
                       onPressed: _back,
-                      child: const Text('Back'),
+                      child: const Text('Back',
+                          style: TextStyle(color: AppTheme.textMuted)),
                     ),
                   const Spacer(),
-                  FilledButton(
-                    onPressed: _canContinue ? _next : null,
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size(140, 48),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
+                  AnimatedOpacity(
+                    opacity: _canContinue ? 1 : 0.4,
+                    duration: const Duration(milliseconds: 200),
+                    child: FilledButton(
+                      onPressed: _canContinue ? _next : null,
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size(150, 52),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                       ),
+                      child: Text(_step == 0
+                          ? 'Get started'
+                          : _step == 4
+                              ? 'Enter app'
+                              : 'Continue'),
                     ),
-                    child: Text(_step == 3 ? 'Finish' : 'Continue'),
                   ),
                 ],
               ),
@@ -193,49 +219,83 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  Widget _stepBasics() {
-    return _StepScaffold(
-      title: 'About you',
-      subtitle: 'This helps personalize your analysis and tips.',
+  Widget _welcome() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 28),
       child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [AppTheme.primary, AppTheme.primarySoft],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: const Icon(Icons.auto_awesome, color: Colors.white, size: 34),
+          ),
+          const SizedBox(height: 28),
+          Text(
+            'Welcome to\nCara IQ',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  height: 1.15,
+                  letterSpacing: -0.5,
+                ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'A few quick questions so we can personalize\nyour scores and tips.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppTheme.textMuted, height: 1.5, fontSize: 15),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _aboutYou() {
+    return _ScrollBody(
+      title: 'About you',
+      subtitle: 'Just the basics.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           TextField(
             controller: _nameCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Name',
-              border: OutlineInputBorder(),
-            ),
+            style: const TextStyle(color: AppTheme.text),
+            decoration: const InputDecoration(hintText: 'Your name'),
             onChanged: (_) => setState(() {}),
           ),
-          const SizedBox(height: 16),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text('Gender', style: Theme.of(context).textTheme.titleSmall),
-          ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 20),
+          const Text('Gender', style: TextStyle(color: AppTheme.textMuted)),
+          const SizedBox(height: 10),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 10,
+            runSpacing: 10,
             children: _genders.map((g) {
               final selected = _gender == g;
-              return ChoiceChip(
-                label: Text(g),
+              return _SelectChip(
+                label: g,
                 selected: selected,
-                onSelected: (_) => setState(() => _gender = g),
+                onTap: () => setState(() => _gender = g),
               );
             }).toList(),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           Row(
             children: [
               Expanded(
                 child: TextField(
                   controller: _ageCtrl,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Age',
-                    border: OutlineInputBorder(),
-                  ),
+                  style: const TextStyle(color: AppTheme.text),
+                  decoration: const InputDecoration(hintText: 'Age'),
                   onChanged: (_) => setState(() {}),
                 ),
               ),
@@ -244,10 +304,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 child: TextField(
                   controller: _heightCtrl,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Height (cm)',
-                    border: OutlineInputBorder(),
-                  ),
+                  style: const TextStyle(color: AppTheme.text),
+                  decoration: const InputDecoration(hintText: 'Height cm'),
                 ),
               ),
             ],
@@ -257,59 +315,51 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  Widget _stepWhy() {
-    return _StepScaffold(
+  Widget _whyHere() {
+    return _ScrollBody(
       title: 'How did you find us?',
-      subtitle: 'And what brought you here?',
+      subtitle: 'And what are you here for?',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Where did you first hear about this app?',
-              style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 8),
-          ..._heardOptions.map((o) => RadioListTile<String>(
-                title: Text(o),
-                value: o,
-                groupValue: _heardFrom,
-                onChanged: (v) => setState(() => _heardFrom = v!),
-                contentPadding: EdgeInsets.zero,
-                dense: true,
+          const Text('First heard from', style: TextStyle(color: AppTheme.textMuted)),
+          const SizedBox(height: 10),
+          ..._heardOptions.map((o) => _OptionTile(
+                label: o,
+                selected: _heardFrom == o,
+                onTap: () => setState(() => _heardFrom = o),
               )),
-          const SizedBox(height: 12),
-          Text('Why did you install it?',
-              style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 8),
-          ..._reasons.map((o) => RadioListTile<String>(
-                title: Text(o),
-                value: o,
-                groupValue: _installReason,
-                onChanged: (v) => setState(() => _installReason = v!),
-                contentPadding: EdgeInsets.zero,
-                dense: true,
+          const SizedBox(height: 20),
+          const Text('Main goal', style: TextStyle(color: AppTheme.textMuted)),
+          const SizedBox(height: 10),
+          ..._reasons.map((o) => _OptionTile(
+                label: o,
+                selected: _installReason == o,
+                onTap: () => setState(() => _installReason = o),
               )),
         ],
       ),
     );
   }
 
-  Widget _stepFocus() {
-    return _StepScaffold(
-      title: 'What do you want to work on?',
-      subtitle: 'Select everything that matters to you.',
+  Widget _focus() {
+    return _ScrollBody(
+      title: 'What bothers you most?',
+      subtitle: 'Pick as many as you want.',
       child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
+        spacing: 10,
+        runSpacing: 10,
         children: _focusOptions.map((o) {
           final selected = _focusAreas.contains(o);
-          return FilterChip(
-            label: Text(o),
+          return _SelectChip(
+            label: o,
             selected: selected,
-            onSelected: (v) {
+            onTap: () {
               setState(() {
-                if (v) {
-                  _focusAreas.add(o);
-                } else {
+                if (selected) {
                   _focusAreas.remove(o);
+                } else {
+                  _focusAreas.add(o);
                 }
               });
             },
@@ -319,35 +369,28 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  Widget _stepHabits() {
-    return _StepScaffold(
+  Widget _habits() {
+    return _ScrollBody(
       title: 'Your habits',
-      subtitle: 'Skincare, hygiene, and face-related exercise.',
+      subtitle: 'Skincare and training frequency.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('How often do you follow a skincare / hygiene routine?',
-              style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 8),
-          ..._freqOptions.map((o) => RadioListTile<String>(
-                title: Text(o),
-                value: o,
-                groupValue: _skincare,
-                onChanged: (v) => setState(() => _skincare = v!),
-                contentPadding: EdgeInsets.zero,
-                dense: true,
+          const Text('Skincare / hygiene', style: TextStyle(color: AppTheme.textMuted)),
+          const SizedBox(height: 10),
+          ..._freqOptions.map((o) => _OptionTile(
+                label: o,
+                selected: _skincare == o,
+                onTap: () => setState(() => _skincare = o),
               )),
-          const SizedBox(height: 12),
-          Text('How often do you train posture, jaw, or facial muscles?',
-              style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 8),
-          ..._freqOptions.map((o) => RadioListTile<String>(
-                title: Text(o),
-                value: o,
-                groupValue: _exercise,
-                onChanged: (v) => setState(() => _exercise = v!),
-                contentPadding: EdgeInsets.zero,
-                dense: true,
+          const SizedBox(height: 20),
+          const Text('Posture / jaw / face training',
+              style: TextStyle(color: AppTheme.textMuted)),
+          const SizedBox(height: 10),
+          ..._freqOptions.map((o) => _OptionTile(
+                label: o,
+                selected: _exercise == o,
+                onTap: () => setState(() => _exercise = o),
               )),
         ],
       ),
@@ -355,12 +398,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 }
 
-class _StepScaffold extends StatelessWidget {
+class _ScrollBody extends StatelessWidget {
   final String title;
   final String subtitle;
   final Widget child;
 
-  const _StepScaffold({
+  const _ScrollBody({
     required this.title,
     required this.subtitle,
     required this.child,
@@ -369,7 +412,7 @@ class _StepScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -377,16 +420,112 @@ class _StepScaffold extends StatelessWidget {
             title,
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.w600,
+                  letterSpacing: -0.3,
                 ),
           ),
           const SizedBox(height: 6),
-          Text(
-            subtitle,
-            style: TextStyle(color: Colors.grey[600], height: 1.4),
-          ),
-          const SizedBox(height: 24),
+          Text(subtitle, style: const TextStyle(color: AppTheme.textMuted)),
+          const SizedBox(height: 28),
           child,
         ],
+      ),
+    );
+  }
+}
+
+class _SelectChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _SelectChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      child: Material(
+        color: selected ? AppTheme.primarySoft : AppTheme.surface2,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: selected ? AppTheme.primary : AppTheme.border,
+              ),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: selected ? Colors.white : AppTheme.text,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OptionTile extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _OptionTile({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: selected ? AppTheme.primarySoft.withOpacity(0.45) : AppTheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: selected ? AppTheme.primary : AppTheme.border,
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                      color: AppTheme.text,
+                    ),
+                  ),
+                ),
+                Icon(
+                  selected ? Icons.check_circle : Icons.circle_outlined,
+                  color: selected ? AppTheme.primary : AppTheme.textMuted,
+                  size: 22,
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
