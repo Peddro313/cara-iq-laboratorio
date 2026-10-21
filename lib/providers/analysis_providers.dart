@@ -3,9 +3,16 @@ import '../models/analysis.dart';
 import '../services/analysis_repository.dart';
 import '../services/scoring_engine.dart';
 import '../services/landmark_service.dart';
+import '../services/face_detector_service.dart';
 
 final analysisRepositoryProvider = Provider<AnalysisRepository>((ref) {
   return AnalysisRepository();
+});
+
+final faceDetectorProvider = Provider<FaceDetectorService>((ref) {
+  final service = FaceDetectorService();
+  ref.onDispose(() => service.dispose());
+  return service;
 });
 
 final analysesProvider = FutureProvider<List<AnalysisResult>>((ref) async {
@@ -19,7 +26,7 @@ final analysisByIdProvider =
   return repo.getById(id);
 });
 
-/// Runs a full analysis from front + side landmarks and saves it.
+/// Runs analysis from front + side landmarks and saves it.
 final runAnalysisProvider = Provider((ref) {
   return ({
     required List<FacialLandmark> frontLandmarks,
@@ -36,15 +43,44 @@ final runAnalysisProvider = Provider((ref) {
 
     final repo = ref.read(analysisRepositoryProvider);
     await repo.save(result);
-
-    // Invalidate list so History updates
     ref.invalidate(analysesProvider);
-
     return result;
   };
 });
 
-/// Convenience provider that uses demo landmarks (until real MediaPipe is wired).
+/// Detect faces from photos (ML Kit) with demo fallback, then score.
+final runPhotoAnalysisProvider = Provider((ref) {
+  return ({
+    required String frontPhotoPath,
+    required String sidePhotoPath,
+  }) async {
+    final detector = ref.read(faceDetectorProvider);
+    List<FacialLandmark> front;
+    List<FacialLandmark> side;
+
+    try {
+      front = await detector.detectFromFile(frontPhotoPath);
+    } catch (_) {
+      front = LandmarkService.generateDemoLandmarks();
+    }
+
+    try {
+      side = await detector.detectFromFile(sidePhotoPath);
+    } catch (_) {
+      side = LandmarkService.generateDemoLandmarks(sideView: true);
+    }
+
+    final runner = ref.read(runAnalysisProvider);
+    return runner(
+      frontLandmarks: front,
+      sideLandmarks: side,
+      frontPhotoPath: frontPhotoPath,
+      sidePhotoPath: sidePhotoPath,
+    );
+  };
+});
+
+/// Legacy demo-only runner (kept for testing).
 final runDemoAnalysisProvider = Provider((ref) {
   return ({
     String? frontPhotoPath,
@@ -52,7 +88,6 @@ final runDemoAnalysisProvider = Provider((ref) {
   }) async {
     final front = LandmarkService.generateDemoLandmarks();
     final side = LandmarkService.generateDemoLandmarks(sideView: true);
-
     final runner = ref.read(runAnalysisProvider);
     return runner(
       frontLandmarks: front,
