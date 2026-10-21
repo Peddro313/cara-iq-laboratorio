@@ -11,44 +11,45 @@ class HomeScreen extends StatelessWidget {
         title: const Text('Cara IQ Laboratório'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.history),
+            icon: const Icon(Icons.history_outlined),
             onPressed: () => context.push('/history'),
-            tooltip: 'Progress & History',
+            tooltip: 'Progress',
           ),
         ],
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               Text(
-                'Your Face.\nMeasured. Tracked.\nImproved.',
+                'Your face.\nMeasured & tracked.',
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w600,
                       height: 1.25,
+                      letterSpacing: -0.4,
                     ),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               Text(
-                'Get a detailed facial analysis across four pillars and track your progress over time.',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                'Four pillars. Clear scores. Progress over time.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: Colors.grey[600],
                     ),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 28),
               const _FeatureCard(
-                icon: Icons.face_retouching_natural,
+                icon: Icons.face_retouching_natural_outlined,
                 title: 'Harmony',
                 subtitle: 'Proportions & balance',
               ),
               const SizedBox(height: 10),
               const _FeatureCard(
-                icon: Icons.architecture,
+                icon: Icons.architecture_outlined,
                 title: 'Structure',
                 subtitle: 'Jawline & bone definition',
               ),
@@ -60,26 +61,32 @@ class HomeScreen extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               const _FeatureCard(
-                icon: Icons.auto_awesome,
+                icon: Icons.auto_awesome_outlined,
                 title: 'Features',
                 subtitle: 'Surface & detail quality',
               ),
-              const SizedBox(height: 32),
-              ElevatedButton.icon(
+              const SizedBox(height: 28),
+              FilledButton.icon(
                 onPressed: () => context.push('/upload'),
-                icon: const Icon(Icons.camera_alt),
-                label: const Text('Start New Analysis'),
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(56),
+                icon: const Icon(Icons.camera_alt_outlined),
+                label: const Text('Start new analysis'),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(54),
                 ),
               ),
-              const SizedBox(height: 12),
-              OutlinedButton(
-                onPressed: () => context.push('/history'),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: () => context.push('/examples'),
+                icon: const Icon(Icons.photo_library_outlined),
+                label: const Text('Reference examples'),
                 style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(52),
+                  minimumSize: const Size.fromHeight(50),
                 ),
-                child: const Text('View Progress'),
+              ),
+              const SizedBox(height: 10),
+              TextButton(
+                onPressed: () => context.push('/history'),
+                child: const Text('View progress'),
               ),
             ],
           ),
@@ -103,15 +110,10 @@ class _FeatureCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: Colors.grey.shade200),
-      ),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-          child: Icon(icon, color: Theme.of(context).colorScheme.primary),
+          backgroundColor: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.6),
+          child: Icon(icon, color: Theme.of(context).colorScheme.primary, size: 22),
         ),
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
         subtitle: Text(subtitle),
