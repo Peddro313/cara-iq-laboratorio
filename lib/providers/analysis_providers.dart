@@ -2,7 +2,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/analysis.dart';
 import '../services/analysis_repository.dart';
 import '../services/scoring_engine.dart';
-import '../services/landmark_service.dart';
 import '../services/face_detector_service.dart';
 
 final analysisRepositoryProvider = Provider<AnalysisRepository>((ref) {
@@ -39,7 +38,6 @@ final runAnalysisProvider = Provider((ref) {
       frontPhotoPath: frontPhotoPath,
       sidePhotoPath: sidePhotoPath,
     );
-
     final repo = ref.read(analysisRepositoryProvider);
     await repo.save(result);
     ref.invalidate(analysesProvider);
@@ -47,8 +45,8 @@ final runAnalysisProvider = Provider((ref) {
   };
 });
 
-/// Real photo analysis. Front face is required.
-/// Side is best-effort (profile detection is harder).
+/// Front face is required and drives the scores.
+/// Side is attempted but does not invent fake landmarks.
 final runPhotoAnalysisProvider = Provider((ref) {
   return ({
     required String frontPhotoPath,
@@ -56,20 +54,17 @@ final runPhotoAnalysisProvider = Provider((ref) {
   }) async {
     final detector = ref.read(faceDetectorProvider);
 
-    // Front is mandatory — this drives most scores
     final front = await detector.detectFromFile(frontPhotoPath);
-    if (front.length < 6) {
-      throw Exception(
-        'Could not read enough facial points. Try better lighting and a clearer front photo.',
-      );
+    if (front.length < 5) {
+      throw Exception('Could not detect enough facial points. Try a clearer front photo.');
     }
 
-    List<FacialLandmark> side;
+    List<FacialLandmark> side = const [];
     try {
       side = await detector.detectFromFile(sidePhotoPath);
     } catch (_) {
-      // Side profile often fails face detectors; use empty side ratios only
-      side = LandmarkService.generateDemoLandmarks(sideView: true);
+      // Side often fails on true profiles — scores still come from front
+      side = const [];
     }
 
     final runner = ref.read(runAnalysisProvider);
