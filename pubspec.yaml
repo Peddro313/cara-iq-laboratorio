@@ -1,7 +1,7 @@
 name: cara_iq_laboratorio
 description: Cara IQ Laboratório - Original facial analysis app with scoring and progress tracking.
 publish_to: 'none'
-version: 0.2.0+2
+version: 0.3.0+3
 
 environment:
   sdk: '>=3.2.0 <4.0.0'
@@ -35,3 +35,4 @@ flutter:
   assets:
     - assets/images/
     - assets/guides/
+    - assets/examples/
