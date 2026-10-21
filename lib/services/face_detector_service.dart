@@ -2,18 +2,17 @@ import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import '../models/analysis.dart';
 import 'landmark_service.dart';
 
-/// Detects a face with Google ML Kit and builds reliable landmarks
-/// in **normalized 0–1 coordinates** relative to the face bounding box
-/// (so off-center faces still score correctly).
+/// Detects face with ML Kit and builds normalized landmarks from
+/// both key landmarks and contours so measurements actually vary.
 class FaceDetectorService {
   FaceDetectorService() {
     _detector = FaceDetector(
       options: FaceDetectorOptions(
         enableContours: true,
         enableLandmarks: true,
-        enableClassification: false,
+        enableClassification: true,
         performanceMode: FaceDetectorMode.accurate,
-        minFaceSize: 0.1,
+        minFaceSize: 0.08,
       ),
     );
   }
@@ -25,29 +24,22 @@ class FaceDetectorService {
     final faces = await _detector.processImage(input);
 
     if (faces.isEmpty) {
-      throw Exception(
-        'No face detected. Use a clear photo with the full face visible.',
-      );
+      throw Exception('No face detected. Use a clear photo with the full face visible.');
     }
 
-    // Largest face (works even if not centered)
-    faces.sort(
-      (a, b) => (b.boundingBox.width * b.boundingBox.height)
-          .compareTo(a.boundingBox.width * b.boundingBox.height),
-    );
+    faces.sort((a, b) => (b.boundingBox.width * b.boundingBox.height)
+        .compareTo(a.boundingBox.width * a.boundingBox.height));
     final face = faces.first;
-
     final box = face.boundingBox;
-    if (box.width < 40 || box.height < 40) {
-      throw Exception('Face is too small in the frame. Move closer.');
+
+    if (box.width < 30 || box.height < 30) {
+      throw Exception('Face is too small. Move closer or crop tighter.');
     }
 
     return _buildLandmarks(face);
   }
 
-  /// Normalize image-pixel point → 0–1 relative to face box
-  FacialLandmark _n(int index, double x, double y, double left, double top,
-      double w, double h) {
+  FacialLandmark _n(int index, double x, double y, double left, double top, double w, double h) {
     return FacialLandmark(
       index: index,
       x: ((x - left) / w).clamp(0.0, 1.0),
@@ -62,21 +54,12 @@ class FaceDetectorService {
     final top = box.top;
     final w = box.width;
     final h = box.height;
-
     final points = <FacialLandmark>[];
 
     void addLm(FaceLandmarkType type, int index) {
       final lm = face.landmarks[type];
       if (lm == null) return;
-      points.add(_n(
-        index,
-        lm.position.x.toDouble(),
-        lm.position.y.toDouble(),
-        left,
-        top,
-        w,
-        h,
-      ));
+      points.add(_n(index, lm.position.x.toDouble(), lm.position.y.toDouble(), left, top, w, h));
     }
 
     addLm(FaceLandmarkType.leftEye, FaceLandmarkIndex.leftEyeOuter);
@@ -86,128 +69,88 @@ class FaceDetectorService {
     addLm(FaceLandmarkType.rightMouth, FaceLandmarkIndex.mouthRight);
     addLm(FaceLandmarkType.leftCheek, FaceLandmarkIndex.leftCheek);
     addLm(FaceLandmarkType.rightCheek, FaceLandmarkIndex.rightCheek);
-    addLm(FaceLandmarkType.leftEar, FaceLandmarkIndex.leftJawAngle);
-    addLm(FaceLandmarkType.rightEar, FaceLandmarkIndex.rightJawAngle);
 
-    // Face oval contour → forehead + chin + better cheeks/jaw
+    // Face oval — most reliable for shape
     final oval = face.contours[FaceContourType.face]?.points;
     if (oval != null && oval.isNotEmpty) {
-      var topP = oval.first;
-      var bottomP = oval.first;
-      var leftP = oval.first;
-      var rightP = oval.first;
+      var topP = oval.first, bottomP = oval.first, leftP = oval.first, rightP = oval.first;
       for (final p in oval) {
         if (p.y < topP.y) topP = p;
         if (p.y > bottomP.y) bottomP = p;
         if (p.x < leftP.x) leftP = p;
         if (p.x > rightP.x) rightP = p;
       }
-      points.add(_n(FaceLandmarkIndex.foreheadTop, topP.x.toDouble(),
-          topP.y.toDouble(), left, top, w, h));
-      points.add(_n(FaceLandmarkIndex.chin, bottomP.x.toDouble(),
-          bottomP.y.toDouble(), left, top, w, h));
+      points.add(_n(FaceLandmarkIndex.foreheadTop, topP.x.toDouble(), topP.y.toDouble(), left, top, w, h));
+      points.add(_n(FaceLandmarkIndex.chin, bottomP.x.toDouble(), bottomP.y.toDouble(), left, top, w, h));
 
-      // Approximate jaw angles from lower third of oval
-      final lower = oval.where((p) => p.y > top + h * 0.55).toList();
+      // Better jaw points from lower half of oval
+      final lower = oval.where((p) => p.y > top + h * 0.50).toList();
       if (lower.length >= 2) {
-        var jl = lower.first;
-        var jr = lower.first;
+        var jl = lower.first, jr = lower.first;
         for (final p in lower) {
           if (p.x < jl.x) jl = p;
           if (p.x > jr.x) jr = p;
         }
-        points.add(_n(FaceLandmarkIndex.leftJawAngle, jl.x.toDouble(),
-            jl.y.toDouble(), left, top, w, h));
-        points.add(_n(FaceLandmarkIndex.rightJawAngle, jr.x.toDouble(),
-            jr.y.toDouble(), left, top, w, h));
+        points.add(_n(FaceLandmarkIndex.leftJawAngle, jl.x.toDouble(), jl.y.toDouble(), left, top, w, h));
+        points.add(_n(FaceLandmarkIndex.rightJawAngle, jr.x.toDouble(), jr.y.toDouble(), left, top, w, h));
       }
-    } else {
-      // Box-based fallback
-      points.add(_n(FaceLandmarkIndex.foreheadTop, left + w / 2, top, left, top, w, h));
-      points.add(_n(FaceLandmarkIndex.chin, left + w / 2, top + h, left, top, w, h));
     }
 
-    // Nose bridge from contour
+    // Nose bridge
     final bridge = face.contours[FaceContourType.noseBridge]?.points;
     if (bridge != null && bridge.isNotEmpty) {
       final p = bridge.first;
-      points.add(_n(FaceLandmarkIndex.noseBridge, p.x.toDouble(), p.y.toDouble(),
-          left, top, w, h));
+      points.add(_n(FaceLandmarkIndex.noseBridge, p.x.toDouble(), p.y.toDouble(), left, top, w, h));
     } else {
-      // Midpoint between eyes and nose tip
       final le = face.landmarks[FaceLandmarkType.leftEye];
       final re = face.landmarks[FaceLandmarkType.rightEye];
       final nose = face.landmarks[FaceLandmarkType.noseBase];
       if (le != null && re != null && nose != null) {
-        final mx = (le.position.x + re.position.x) / 2;
-        final my = (le.position.y + re.position.y) / 2;
-        points.add(_n(
-          FaceLandmarkIndex.noseBridge,
-          mx,
-          (my + nose.position.y) / 2,
-          left,
-          top,
-          w,
-          h,
-        ));
+        final mx = (le.position.x + re.position.x) / 2.0;
+        final my = (le.position.y + re.position.y) / 2.0;
+        points.add(_n(FaceLandmarkIndex.noseBridge, mx, (my + nose.position.y) / 2.0, left, top, w, h));
       }
     }
 
-    // Nose width from nose bottom contour
-    final noseBottom = face.contours[FaceContourType.noseBottom]?.points;
-    if (noseBottom != null && noseBottom.length >= 2) {
-      var nl = noseBottom.first;
-      var nr = noseBottom.first;
-      for (final p in noseBottom) {
+    // Nose width
+    final noseBot = face.contours[FaceContourType.noseBottom]?.points;
+    if (noseBot != null && noseBot.length >= 2) {
+      var nl = noseBot.first, nr = noseBot.first;
+      for (final p in noseBot) {
         if (p.x < nl.x) nl = p;
         if (p.x > nr.x) nr = p;
       }
-      points.add(_n(FaceLandmarkIndex.noseLeft, nl.x.toDouble(), nl.y.toDouble(),
-          left, top, w, h));
-      points.add(_n(FaceLandmarkIndex.noseRight, nr.x.toDouble(),
-          nr.y.toDouble(), left, top, w, h));
+      points.add(_n(FaceLandmarkIndex.noseLeft, nl.x.toDouble(), nl.y.toDouble(), left, top, w, h));
+      points.add(_n(FaceLandmarkIndex.noseRight, nr.x.toDouble(), nr.y.toDouble(), left, top, w, h));
     }
 
-    // Inner eye corners approximated between left/right eye landmarks
+    // Eye inner approximation
     final le = face.landmarks[FaceLandmarkType.leftEye];
     final re = face.landmarks[FaceLandmarkType.rightEye];
     if (le != null && re != null) {
-      final midX = (le.position.x + re.position.x) / 2;
-      points.add(_n(
-        FaceLandmarkIndex.leftEyeInner,
-        (le.position.x + midX) / 2,
-        le.position.y.toDouble(),
-        left,
-        top,
-        w,
-        h,
-      ));
-      points.add(_n(
-        FaceLandmarkIndex.rightEyeInner,
-        (re.position.x + midX) / 2,
-        re.position.y.toDouble(),
-        left,
-        top,
-        w,
-        h,
-      ));
+      final midX = (le.position.x + re.position.x) / 2.0;
+      points.add(_n(FaceLandmarkIndex.leftEyeInner, (le.position.x + midX) / 2.0, le.position.y.toDouble(), left, top, w, h));
+      points.add(_n(FaceLandmarkIndex.rightEyeInner, (re.position.x + midX) / 2.0, re.position.y.toDouble(), left, top, w, h));
     }
 
-    // Ensure cheeks exist
-    final hasLeftCheek =
-        points.any((p) => p.index == FaceLandmarkIndex.leftCheek);
-    final hasRightCheek =
-        points.any((p) => p.index == FaceLandmarkIndex.rightCheek);
-    if (!hasLeftCheek || !hasRightCheek) {
-      points.add(_n(FaceLandmarkIndex.leftCheek, left, top + h * 0.45, left, top, w, h));
-      points.add(_n(
-          FaceLandmarkIndex.rightCheek, left + w, top + h * 0.45, left, top, w, h));
+    // Cheeks fallback from oval extremes if missing
+    if (!points.any((p) => p.index == FaceLandmarkIndex.leftCheek) && oval != null) {
+      var leftMost = oval.first;
+      for (final p in oval) {
+        if (p.x < leftMost.x) leftMost = p;
+      }
+      points.add(_n(FaceLandmarkIndex.leftCheek, leftMost.x.toDouble(), leftMost.y.toDouble(), left, top, w, h));
+    }
+    if (!points.any((p) => p.index == FaceLandmarkIndex.rightCheek) && oval != null) {
+      var rightMost = oval.first;
+      for (final p in oval) {
+        if (p.x > rightMost.x) rightMost = p;
+      }
+      points.add(_n(FaceLandmarkIndex.rightCheek, rightMost.x.toDouble(), rightMost.y.toDouble(), left, top, w, h));
     }
 
     return points;
   }
 
-  void dispose() {
-    _detector.close();
-  }
+  void dispose() => _detector.close();
 }
