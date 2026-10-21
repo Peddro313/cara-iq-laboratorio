@@ -3,39 +3,33 @@ import '../models/analysis.dart';
 import 'landmark_service.dart';
 
 /// Original scoring engine for Cara IQ Laboratório.
-/// Formulas are based on public anthropometric knowledge and are NOT a copy of any commercial product.
 class ScoringEngine {
-  /// Ideal ranges are approximate and intended as starting points.
-  /// They can (and should) be refined with more data later.
-
   static const Map<String, (double, double)> idealRatios = {
-    // Front view
-    'facial_thirds_upper': (0.30, 0.36),
-    'facial_thirds_middle': (0.30, 0.36),
-    'facial_thirds_lower': (0.30, 0.36),
-    'eye_spacing': (0.90, 1.15),
-    'nose_width_to_mouth': (0.65, 0.85),
-    'jaw_to_cheek_width': (0.75, 0.95),
-    'face_width_to_height': (0.70, 0.85),
-
-    // Angularity related
-    'jaw_angle': (115.0, 135.0),
+    'facial_thirds_upper': (0.28, 0.38),
+    'facial_thirds_middle': (0.28, 0.38),
+    'facial_thirds_lower': (0.28, 0.40),
+    'eye_spacing': (0.85, 1.25),
+    'nose_width_to_mouth': (0.55, 0.95),
+    'jaw_to_cheek_width': (0.70, 1.00),
+    'face_width_to_height': (0.65, 0.90),
+    'jaw_angle': (105.0, 145.0),
+    'canthal_tilt_left': (-5.0, 12.0),
   };
 
+  /// Softer curve: values near ideal stay high; outliers drop gradually.
   static double scoreAgainstRange(double value, double minIdeal, double maxIdeal) {
     final mid = (minIdeal + maxIdeal) / 2;
-    final halfRange = (maxIdeal - minIdeal) / 2;
+    final half = math.max((maxIdeal - minIdeal) / 2, 0.001);
 
     if (value >= minIdeal && value <= maxIdeal) {
-      final dist = (value - mid).abs() / halfRange;
-      return 10.0 - (dist * 1.5);
+      final dist = (value - mid).abs() / half;
+      return 9.6 - dist * 1.2; // 8.4 – 9.6 inside band
     }
 
-    final distanceOutside = value < minIdeal
-        ? minIdeal - value
-        : value - maxIdeal;
-    final penalty = distanceOutside / halfRange;
-    return math.max(1.0, 8.0 - penalty * 3.0);
+    final outside = value < minIdeal ? minIdeal - value : value - maxIdeal;
+    final t = outside / half;
+    // Gentle falloff, floor at 4.0 so one bad ratio cannot destroy the face
+    return math.max(4.0, 8.2 - t * 1.8);
   }
 
   static String labelForScore(double score) {
@@ -47,19 +41,23 @@ class ScoringEngine {
     return 'Needs Work';
   }
 
+  static double _avg(List<double> xs, [double fallback = 7.0]) {
+    if (xs.isEmpty) return fallback;
+    return xs.reduce((a, b) => a + b) / xs.length;
+  }
+
   static AnalysisResult analyze({
     required List<FacialLandmark> frontLandmarks,
     required List<FacialLandmark> sideLandmarks,
     String? frontPhotoPath,
     String? sidePhotoPath,
   }) {
-    // Real ratio calculation from landmarks
     final ratios = LandmarkService.computeRatios(
       front: frontLandmarks,
       side: sideLandmarks,
     );
 
-    // --- Harmony (proportions) ---
+    // Harmony
     final harmonyKeys = [
       'facial_thirds_upper',
       'facial_thirds_middle',
@@ -70,84 +68,80 @@ class ScoringEngine {
     ];
     final harmonyScores = <double>[];
     for (final key in harmonyKeys) {
-      if (ratios.containsKey(key) && idealRatios.containsKey(key)) {
+      if (ratios[key] != null && idealRatios[key] != null) {
         final (min, max) = idealRatios[key]!;
         harmonyScores.add(scoreAgainstRange(ratios[key]!, min, max));
       }
     }
-    final harmonyAvg = harmonyScores.isEmpty
-        ? 6.0
-        : harmonyScores.reduce((a, b) => a + b) / harmonyScores.length;
+    final harmonyAvg = _avg(harmonyScores, 7.2);
 
     final harmony = PillarScore(
       name: 'Harmony',
       score: double.parse(harmonyAvg.toStringAsFixed(2)),
       label: labelForScore(harmonyAvg),
       strengths: harmonyAvg >= 7.5 ? ['Balanced facial proportions'] : [],
-      improvements: harmonyAvg < 6.5
-          ? ['Some proportional ratios are outside the ideal range']
+      improvements: harmonyAvg < 6.0
+          ? ['Some proportions sit outside the preferred range']
           : [],
     );
 
-    // --- Structure / Angularity ---
+    // Structure
     final structureKeys = ['jaw_angle', 'jaw_to_cheek_width', 'face_width_to_height'];
     final structureScores = <double>[];
     for (final key in structureKeys) {
-      if (ratios.containsKey(key) && idealRatios.containsKey(key)) {
+      if (ratios[key] != null && idealRatios[key] != null) {
         final (min, max) = idealRatios[key]!;
         structureScores.add(scoreAgainstRange(ratios[key]!, min, max));
       }
     }
-    final structureAvg = structureScores.isEmpty
-        ? 6.0
-        : structureScores.reduce((a, b) => a + b) / structureScores.length;
+    final structureAvg = _avg(structureScores, 7.0);
 
     final structure = PillarScore(
       name: 'Structure',
       score: double.parse(structureAvg.toStringAsFixed(2)),
       label: labelForScore(structureAvg),
-      strengths: structureAvg >= 7.5 ? ['Good bone structure definition'] : [],
-      improvements: structureAvg < 6.5
-          ? ['Jawline or cheek definition could be stronger']
+      strengths: structureAvg >= 7.5 ? ['Solid bone structure signals'] : [],
+      improvements: structureAvg < 6.0
+          ? ['Jaw / cheek definition could read stronger']
           : [],
     );
 
-    // --- Dimorphism (still simplified) ---
-    // Later we will use more specific traits (brow ridge, jaw width relative to face, etc.)
-    double dimorphismScore = 6.2;
-    if (ratios.containsKey('jaw_to_cheek_width')) {
-      final jcw = ratios['jaw_to_cheek_width']!;
-      // Slightly wider jaws relative to cheeks tend to score higher for masculine dimorphism
-      dimorphismScore = scoreAgainstRange(jcw, 0.80, 0.98);
+    // Dimorphism
+    double dimorphismScore = 7.0;
+    if (ratios['jaw_to_cheek_width'] != null) {
+      dimorphismScore =
+          scoreAgainstRange(ratios['jaw_to_cheek_width']!, 0.72, 1.0);
     }
+    if (ratios['jaw_angle'] != null) {
+      final ja = scoreAgainstRange(ratios['jaw_angle']!, 105, 145);
+      dimorphismScore = (dimorphismScore + ja) / 2;
+    }
+
     final dimorphism = PillarScore(
       name: 'Dimorphism',
       score: double.parse(dimorphismScore.toStringAsFixed(2)),
       label: labelForScore(dimorphismScore),
-      strengths: dimorphismScore >= 7.5 ? ['Strong structural dimorphism signals'] : [],
-      improvements: dimorphismScore < 6.0
-          ? ['Dimorphism indicators are moderate']
-          : [],
+      strengths: dimorphismScore >= 7.5 ? ['Clear structural dimorphism cues'] : [],
+      improvements: dimorphismScore < 6.0 ? ['Dimorphism reads moderate'] : [],
     );
 
-    // --- Features (placeholder – needs image analysis later) ---
-    final featuresScore = 6.8;
+    // Features — until skin AI exists, keep neutral-high so it does not tank overall
+    const featuresScore = 7.4;
     final features = PillarScore(
       name: 'Features',
       score: featuresScore,
       label: labelForScore(featuresScore),
-      strengths: [],
-      improvements: ['Skin and feature quality analysis coming in a future update'],
+      strengths: ['Surface quality scoring will improve in a later update'],
+      improvements: [],
     );
 
-    // Overall = power mean of the four pillars
     final overall = math.pow(
-          (math.pow(harmony.score, 1.5) +
-                  math.pow(structure.score, 1.5) +
-                  math.pow(dimorphism.score, 1.5) +
-                  math.pow(features.score, 1.5)) /
+          (math.pow(harmony.score, 1.4) +
+                  math.pow(structure.score, 1.4) +
+                  math.pow(dimorphism.score, 1.4) +
+                  math.pow(features.score, 1.4)) /
               4,
-          1 / 1.5,
+          1 / 1.4,
         ) as double;
 
     return AnalysisResult(
