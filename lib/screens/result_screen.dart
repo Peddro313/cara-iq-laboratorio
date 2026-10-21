@@ -1,290 +1,305 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../models/analysis.dart';
 import '../providers/analysis_providers.dart';
+import '../theme/app_theme.dart';
+import '../utils/score_color.dart';
 
 class ResultScreen extends ConsumerWidget {
   final String analysisId;
-
   const ResultScreen({super.key, required this.analysisId});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final analysisAsync = ref.watch(analysisByIdProvider(analysisId));
-
+    final async = ref.watch(analysisByIdProvider(analysisId));
     return Scaffold(
+      backgroundColor: AppTheme.bg,
       appBar: AppBar(
-        title: const Text('Analysis Result'),
+        title: const Text('Your analysis'),
         leading: IconButton(
-          icon: const Icon(Icons.home),
+          icon: const Icon(Icons.home_outlined),
           onPressed: () => context.go('/'),
         ),
       ),
-      body: analysisAsync.when(
+      body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, _) => Center(child: Text('Error: $err')),
-        data: (result) {
-          if (result == null) {
-            return const Center(child: Text('Analysis not found'));
-          }
-          return _ResultBody(result: result);
+        error: (e, _) => Center(child: Text('$e')),
+        data: (r) {
+          if (r == null) return const Center(child: Text('Not found'));
+          return _Body(result: r);
         },
       ),
     );
   }
 }
 
-class _ResultBody extends StatelessWidget {
+class _Body extends StatelessWidget {
   final AnalysisResult result;
+  const _Body({required this.result});
 
-  const _ResultBody({required this.result});
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth > 700;
+        final photo = _PhotoPane(result: result);
+        final scores = _ScoresPane(result: result);
 
-  Color _scoreColor(double score) {
-    if (score >= 8) return Colors.green.shade600;
-    if (score >= 6) return Colors.blue.shade600;
-    if (score >= 4) return Colors.orange.shade700;
-    return Colors.red.shade600;
+        if (wide) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(flex: 5, child: photo),
+              Expanded(flex: 6, child: scores),
+            ],
+          );
+        }
+
+        return ListView(
+          padding: const EdgeInsets.only(bottom: 32),
+          children: [
+            SizedBox(height: 320, child: photo),
+            scores,
+          ],
+        );
+      },
+    );
   }
+}
+
+class _PhotoPane extends StatelessWidget {
+  final AnalysisResult result;
+  const _PhotoPane({required this.result});
+
+  @override
+  Widget build(BuildContext context) {
+    final path = result.frontPhotoPath;
+    return Container(
+      color: AppTheme.surface,
+      child: path != null && File(path).existsSync()
+          ? Image.file(File(path), fit: BoxFit.cover)
+          : const Center(
+              child: Icon(Icons.person, size: 80, color: AppTheme.textMuted),
+            ),
+    );
+  }
+}
+
+class _ScoresPane extends StatelessWidget {
+  final AnalysisResult result;
+  const _ScoresPane({required this.result});
 
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Overall Score
-          Card(
-            elevation: 0,
-            color: Theme.of(context).colorScheme.primaryContainer,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 24),
-              child: Column(
-                children: [
-                  Text(
-                    'Overall Score',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.onPrimaryContainer,
-                        ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    result.overallScore.toStringAsFixed(1),
-                    style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.primary,
-                          height: 1,
-                        ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    result.overallLabel,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Analyzed ${_formatDate(result.createdAt)}',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.grey[600],
-                        ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 28),
-
-          Text(
-            'Pillars',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
+          Row(
+            children: [
+              Text(
+                result.overallScore.toStringAsFixed(1),
+                style: TextStyle(
+                  fontSize: 48,
+                  fontWeight: FontWeight.w700,
+                  color: scoreColor(result.overallScore),
                 ),
-          ),
-          const SizedBox(height: 12),
-
-          _PillarCard(score: result.harmony, color: _scoreColor(result.harmony.score)),
-          _PillarCard(score: result.structure, color: _scoreColor(result.structure.score)),
-          _PillarCard(score: result.dimorphism, color: _scoreColor(result.dimorphism.score)),
-          _PillarCard(score: result.features, color: _scoreColor(result.features.score)),
-
-          if (result.ratios.isNotEmpty) ...[
-            const SizedBox(height: 28),
-            Text(
-              'Key Ratios',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
-            const SizedBox(height: 12),
-            Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-                side: BorderSide(color: Colors.grey.shade200),
               ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
+              const SizedBox(width: 12),
+              Expanded(
                 child: Column(
-                  children: result.ratios.entries.map((e) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              e.key.replaceAll('_', ' '),
-                              style: const TextStyle(fontSize: 14),
-                            ),
-                          ),
-                          Text(
-                            e.value.toStringAsFixed(3),
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Overall', style: TextStyle(color: AppTheme.textMuted)),
+                    Text(result.overallLabel,
+                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                  ],
                 ),
               ),
-            ),
-          ],
-
-          const SizedBox(height: 28),
-          ElevatedButton(
-            onPressed: () => context.go('/upload'),
-            style: ElevatedButton.styleFrom(
-              minimumSize: const Size.fromHeight(52),
-            ),
-            child: const Text('New Analysis'),
+            ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 20),
+          const Text('Pillars', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+          const SizedBox(height: 10),
+          _PillarTile(
+            score: result.harmony,
+            onTap: () => context.push('/pillar/${result.id}/harmony'),
+          ),
+          _PillarTile(
+            score: result.structure,
+            onTap: () => context.push('/pillar/${result.id}/structure'),
+          ),
+          _PillarTile(
+            score: result.dimorphism,
+            onTap: () => context.push('/pillar/${result.id}/dimorphism'),
+          ),
+          _PillarTile(
+            score: result.features,
+            onTap: () => context.push('/pillar/${result.id}/features'),
+          ),
+          const SizedBox(height: 20),
+          const Text('Key metrics', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+          const SizedBox(height: 10),
+          ..._metricTiles(result),
+          const SizedBox(height: 24),
+          FilledButton(
+            onPressed: () => context.go('/upload'),
+            child: const Text('New analysis'),
+          ),
+          const SizedBox(height: 10),
           OutlinedButton(
             onPressed: () => context.push('/history'),
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size.fromHeight(52),
-            ),
-            child: const Text('View Progress History'),
-          ),
-          const SizedBox(height: 12),
-          TextButton(
-            onPressed: () => context.go('/'),
-            child: const Text('Back to Home'),
+            child: const Text('History'),
           ),
         ],
       ),
     );
   }
 
-  String _formatDate(DateTime dt) {
-    final local = dt.toLocal();
-    return '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')} '
-        '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+  List<Widget> _metricTiles(AnalysisResult r) {
+    final labels = {
+      'facial_thirds_upper': 'Upper third',
+      'facial_thirds_middle': 'Middle third',
+      'facial_thirds_lower': 'Lower third',
+      'eye_spacing': 'Eye spacing',
+      'nose_width_to_mouth': 'Nose / mouth width',
+      'jaw_to_cheek_width': 'Jaw / cheek width',
+      'face_width_to_height': 'Width / height',
+      'jaw_angle': 'Jaw angle',
+      'canthal_tilt_left': 'Canthal tilt',
+    };
+
+    final widgets = <Widget>[];
+    for (final e in r.ratios.entries) {
+      final name = labels[e.key] ?? e.key.replaceAll('_', ' ');
+      // Convert ratio into a 0-10 display score when possible
+      final display = _ratioAsScore(e.key, e.value);
+      widgets.add(_MetricRow(label: name, value: e.value, score: display));
+    }
+    if (widgets.isEmpty) {
+      widgets.add(const Text('No metrics yet',
+          style: TextStyle(color: AppTheme.textMuted)));
+    }
+    return widgets;
+  }
+
+  double _ratioAsScore(String key, double value) {
+    // Rough mapping for color display
+    const ideals = {
+      'facial_thirds_upper': (0.30, 0.36),
+      'facial_thirds_middle': (0.30, 0.36),
+      'facial_thirds_lower': (0.30, 0.36),
+      'eye_spacing': (0.90, 1.15),
+      'nose_width_to_mouth': (0.65, 0.85),
+      'jaw_to_cheek_width': (0.75, 0.95),
+      'face_width_to_height': (0.70, 0.85),
+      'jaw_angle': (115.0, 135.0),
+      'canthal_tilt_left': (0.0, 8.0),
+    };
+    final range = ideals[key];
+    if (range == null) return 6.0;
+    final (min, max) = range;
+    final mid = (min + max) / 2;
+    final half = (max - min) / 2;
+    if (value >= min && value <= max) {
+      final dist = (value - mid).abs() / half;
+      return 10 - dist * 1.5;
+    }
+    final outside = value < min ? min - value : value - max;
+    return (8 - (outside / half) * 3).clamp(1.0, 10.0);
   }
 }
 
-class _PillarCard extends StatelessWidget {
+class _PillarTile extends StatelessWidget {
   final PillarScore score;
-  final Color color;
-
-  const _PillarCard({required this.score, required this.color});
+  final VoidCallback onTap;
+  const _PillarTile({required this.score, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final progress = (score.score / 10).clamp(0.0, 1.0);
-
-    return Card(
-      elevation: 0,
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: Colors.grey.shade200),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    final c = scoreColor(score.score);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppTheme.border),
+            ),
+            child: Row(
               children: [
-                Text(
-                  score.name,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 16,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(score.name,
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                      Text(score.label,
+                          style: const TextStyle(
+                              color: AppTheme.textMuted, fontSize: 12)),
+                    ],
                   ),
                 ),
                 Text(
-                  '${score.score.toStringAsFixed(1)} / 10',
+                  score.score.toStringAsFixed(1),
                   style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                    fontSize: 16,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    color: c,
                   ),
                 ),
+                const SizedBox(width: 6),
+                const Icon(Icons.chevron_right, color: AppTheme.textMuted),
               ],
             ),
-            const SizedBox(height: 8),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: LinearProgressIndicator(
-                value: progress,
-                minHeight: 8,
-                backgroundColor: Colors.grey.shade200,
-                color: color,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              score.label,
-              style: TextStyle(color: Colors.grey[600], fontSize: 13),
-            ),
-            if (score.strengths.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              ...score.strengths.map(
-                (s) => Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Icon(Icons.check_circle, size: 16, color: Colors.green),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(s, style: const TextStyle(fontSize: 13)),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-            if (score.improvements.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              ...score.improvements.map(
-                (s) => Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(Icons.info_outline, size: 16, color: Colors.orange.shade700),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(s, style: const TextStyle(fontSize: 13)),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ],
+          ),
         ),
+      ),
+    );
+  }
+}
+
+class _MetricRow extends StatelessWidget {
+  final String label;
+  final double value;
+  final double score;
+  const _MetricRow({
+    required this.label,
+    required this.value,
+    required this.score,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = scoreColor(score);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Expanded(child: Text(label, style: const TextStyle(fontSize: 13))),
+          Text(
+            value.toStringAsFixed(value.abs() > 20 ? 1 : 3),
+            style: const TextStyle(color: AppTheme.textMuted, fontSize: 12),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 36,
+            child: Text(
+              score.toStringAsFixed(1),
+              textAlign: TextAlign.right,
+              style: TextStyle(fontWeight: FontWeight.w700, color: c),
+            ),
+          ),
+        ],
       ),
     );
   }
