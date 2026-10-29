@@ -226,7 +226,9 @@ export function analyzeProfile(
 
   const noseProj = (forward(nose) - forward(nasion)) / depthSpan;
   const lipMid = midpoint(lip, lowerLip);
-  const chinProj = (forward(chin) - forward(lipMid)) / depthSpan;
+  const pogonion = mostForward([p(175), p(199), p(152)], forward);
+  const chinProj = (forward(pogonion) - forward(p(I.lipOuterBot))) / depthSpan;
+  const chinButton = (forward(pogonion) - forward(p(152))) / depthSpan;
   const t = clamp01((lip.y - nose.y) / (chin.y - nose.y || 1));
   const eline = forward(nose) + t * (forward(chin) - forward(nose));
   const lipBehind = (eline - forward(lipMid)) / depthSpan;
@@ -242,18 +244,19 @@ export function analyzeProfile(
   const browRidge = (forward(brow) - forward(eye)) / depthSpan;
 
   const noseIdeal = 0.62;
-  const chinIdeal = gender === "female" ? -0.02 : gender === "male" ? 0.08 : 0.03;
+  const chinIdeal = gender === "female" ? -0.1 : gender === "male" ? 0 : -0.05;
+  const emphasisIdeal = gender === "female" ? 0.22 : gender === "male" ? 0.34 : 0.28;
   const browIdeal = gender === "female" ? 0.06 : gender === "male" ? 0.18 : 0.1;
   const nasoIdeal = gender === "female" ? 104 : gender === "male" ? 96 : 100;
 
   const metrics: Metric[] = [
     m("nose_proj", "Nose projection", "structure", noseProj, ratio(noseProj), bell(noseProj, noseIdeal, 0.28), "How far the nose comes forward of the brow, compared with the depth of the face."),
-    m("chin_proj", "Chin projection", "structure", chinProj, ratio(chinProj), bell(chinProj, chinIdeal, 0.2), "Chin against the lips, in the same depth units. Positive means the chin sits further forward."),
+    m("chin_proj", "Chin projection", "structure", chinProj, ahead(chinProj), bell(chinProj, chinIdeal, 0.22), "Front of the chin against the lower lip. Near zero means the chin is about as far forward as the lip. The old score used the underside of the chin, so almost everyone looked recessed."),
     m("nasolabial", "Nasolabial angle", "structure", nasolabial, `${nasolabial.toFixed(0)}°`, bell(nasolabial, nasoIdeal, 18), "Angle where the nose meets the upper lip."),
     m("convexity", "Facial convexity", "harmony", convexity, `${convexity.toFixed(0)}°`, bell(convexity, 165, 16), "Glabella to nose base to chin. Straighter profiles score higher."),
     m("eline", "Lips vs E-line", "harmony", lipBehind, ratio(lipBehind), bell(lipBehind, 0.05, 0.18), "Lips against the line from nose tip to chin."),
     m("brow_ridge", "Brow ridge", "dimorphism", browRidge, ratio(browRidge), bell(browRidge, browIdeal, 0.16), "How far the brow comes forward of the eye."),
-    m("chin_dim", "Chin emphasis", "dimorphism", chinProj, ratio(chinProj), bell(chinProj, chinIdeal, 0.18), "Chin projection scored for this profile."),
+    m("chin_dim", "Chin emphasis", "dimorphism", chinButton, ahead(chinButton), bell(chinButton, emphasisIdeal, 0.16), "How far the front of the chin comes off the underside. A flat chin scores lower. This is separate from projection."),
     m("lip_profile", "Lip projection", "features", lipBehind, ratio(lipBehind), bell(lipBehind, gender === "female" ? 0.02 : 0.08, 0.18), "Where the lips sit against the nose-to-chin line."),
   ];
 
@@ -263,6 +266,18 @@ export function analyzeProfile(
       ? "Side profile measured on the second photo. The nose is treated as the forward point."
       : "Side profile estimated from the depth in the front photo. Add a true side photo to replace this.",
   );
+}
+
+function mostForward(pts: Pt[], forward: (p: Pt) => number) {
+  return pts.reduce((best, pt) => (forward(pt) > forward(best) ? pt : best));
+}
+
+function ahead(n: number) {
+  if (!Number.isFinite(n)) return "—";
+  const v = n.toFixed(2);
+  if (n > 0.03) return `${v} ahead`;
+  if (n < -0.03) return `${v} behind`;
+  return `${v} even`;
 }
 
 function midpoint(a: Pt, b: Pt): Pt {
