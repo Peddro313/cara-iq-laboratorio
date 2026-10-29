@@ -94,7 +94,7 @@ function angleAt(a: Pt, b: Pt, c: Pt) {
 function bell(value: number, ideal: number, sigma: number, above = 1) {
   const z = (value - ideal) / Math.max(sigma, 1e-6);
   const w = z > 0 ? z / above : -z;
-  const s = 9.6 * Math.exp(-0.55 * w * w);
+  const s = 9.6 * Math.exp(-1.05 * w * w);
   return Math.round(Math.min(9.6, Math.max(1, s)) * 10) / 10;
 }
 
@@ -105,8 +105,11 @@ function toPx(p: Pt | undefined, w: number, h: number): Pt {
 
 function mix(xs: number[]) {
   if (!xs.length) return 5;
+  const sorted = [...xs].sort((a, b) => a - b);
+  const worst = sorted.slice(0, Math.max(1, Math.ceil(sorted.length * 0.4)));
   const avg = xs.reduce((a, b) => a + b, 0) / xs.length;
-  return Math.round(avg * 10) / 10;
+  const low = worst.reduce((a, b) => a + b, 0) / worst.length;
+  return Math.round((avg * 0.45 + low * 0.55) * 10) / 10;
 }
 
 export function labelFor(score: number) {
@@ -207,12 +210,13 @@ export function analyzeFace(landmarks: Pt[], gender: Gender, image: { w: number;
     const s = Math.sin(-eyeAngle);
     return { x: dx * c - dy * s, y: dx * s + dy * c };
   };
-  const noseShift = Math.abs(upright(p(I.noseTip)).x) / faceW;
+  const noseCrook =
+    Math.abs(upright(p(I.noseTip)).x - upright(p(I.subnasale)).x) / (noseW || 1);
   const mouthSkew = Math.abs(upright(p(I.mouthLeft)).y - upright(p(I.mouthRight)).y) / mouthW;
   const jawShift =
     Math.abs(Math.abs(upright(p(I.jawLeft)).x) - Math.abs(upright(p(I.jawRight)).x)) / faceW;
 
-  const jawIdeal = gender === "female" ? 0.75 : gender === "male" ? 0.84 : 0.8;
+  const jawIdeal = gender === "female" ? 0.76 : gender === "male" ? 0.81 : 0.785;
   const whIdeal = gender === "female" ? 0.8 : gender === "male" ? 0.78 : 0.79;
   const mouthIdeal = gender === "female" ? 0.36 : gender === "male" ? 0.38 : 0.37;
   const lipIdeal = gender === "female" ? 0.4 : gender === "male" ? 0.32 : 0.36;
@@ -220,7 +224,7 @@ export function analyzeFace(landmarks: Pt[], gender: Gender, image: { w: number;
   let lipRatio = lipRatioRaw;
   if (mouthGap > 0.08) lipRatio = lipRatio * 0.55 + lipIdeal * 0.45;
   const tiltIdeal = gender === "female" ? 7 : gender === "male" ? 6 : 6.5;
-  const eyeIdeal = gender === "female" ? 1.05 : gender === "male" ? 1.15 : 1.1;
+  const eyeIdeal = gender === "female" ? 1.08 : gender === "male" ? 1.18 : 1.13;
   const jawAngIdeal = 112;
   const chinLenIdeal = gender === "female" ? 0.16 : gender === "male" ? 0.19 : 0.175;
   const jawMouthIdeal = gender === "female" ? 1.9 : gender === "male" ? 2.25 : 2.08;
@@ -231,12 +235,12 @@ export function analyzeFace(landmarks: Pt[], gender: Gender, image: { w: number;
     m("thirds_upper", "Upper third", "harmony", thirdsU, pct(thirdsU), bell(thirdsU, 0.36, 0.035), hairOnForehead ? "Hair covered the forehead, so this uses the brow-to-chin scale instead of the hairline." : "Share of the face above the brow."),
     m("thirds_mid", "Middle third", "harmony", thirdsM, pct(thirdsM), bell(thirdsM, 0.26, 0.03), "Brow to the base of the nose."),
     m("thirds_low", "Lower third", "harmony", thirdsL, pct(thirdsL), bell(thirdsL, 0.38, 0.035), "Nose base to chin. A long or short lower face drops this."),
-    m("eye_space", "Eye spacing", "harmony", eyeSpace, ratio(eyeSpace), bell(eyeSpace, eyeIdeal, 0.1), "Gap between the eyes, in eye-widths. The target is slightly closer than a typical male photo."),
+    m("eye_space", "Eye spacing", "harmony", eyeSpace, ratio(eyeSpace), bell(eyeSpace, eyeIdeal, 0.08), "Gap between the eyes, in eye-widths. The target is slightly closer than a typical male photo."),
     m("nose_mouth", "Nose / mouth", "harmony", noseMouth, ratio(noseMouth), bell(noseMouth, 0.62, 0.06), "Nose width against mouth width. A bit narrower than average is the target."),
     m("face_wh", "Width / height", "harmony", wh, ratio(wh), bell(wh, whIdeal, 0.045), "Cheek width against face height. A leaner face scores higher than a wide one."),
-    m("nose_mid", "Nose midline", "harmony", noseShift, pct(noseShift), bell(noseShift, 0, 0.02), "How far the nose tip sits off the center of the eyes. A crooked nose drops."),
+    m("nose_mid", "Nose midline", "harmony", noseCrook, pct(noseCrook), bell(noseCrook, 0, 0.12), "Nose tip against the base of the nose. A turned head no longer counts as a crooked nose."),
     m("mouth_face", "Mouth / face", "features", mouthFace, ratio(mouthFace), bell(mouthFace, mouthIdeal, 0.055), "Mouth width against cheek width. A typical male reading is about 0.40."),
-    m("jaw_cheek", "Jaw / cheek", "structure", jawCheek, ratio(jawCheek), bell(jawCheek, jawIdeal, 0.03), "Jaw width against the cheeks."),
+    m("jaw_cheek", "Jaw / cheek", "structure", jawCheek, ratio(jawCheek), bell(jawCheek, jawIdeal, 0.028), "Jaw width against the cheeks."),
     m("jaw_angle", "Jaw angle", "structure", jawAng, `${jawAng.toFixed(0)}°`, bell(jawAng, jawAngIdeal, 7), "Angle at the chin. On this mesh a balanced chin is about 112°."),
     m("lower_third", "Chin length", "structure", lipToChin, pct(lipToChin), bell(lipToChin, chinLenIdeal, 0.02), "Lower lip to the bottom of the chin."),
     m("jaw_shift", "Jaw balance", "structure", jawShift, pct(jawShift), bell(jawShift, 0, 0.025), "Left jaw against the right jaw. A clearly uneven jaw drops."),
