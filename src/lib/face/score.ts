@@ -86,19 +86,15 @@ function angleAt(a: Pt, b: Pt, c: Pt) {
   return angle2(a.x, a.y, b.x, b.y, c.x, c.y);
 }
 
-/** Positive when the outer corner sits higher than the inner corner. */
-function canthal(outer: Pt, inner: Pt) {
-  return (Math.atan2(inner.y - outer.y, Math.abs(inner.x - outer.x)) * 180) / Math.PI;
-}
-
 /**
  * An exact hit is 8. A small miss is about 6. A clear miss is about 4.
  * The curve is steep enough that two different features do not both print 6.5.
  * Pillars are a plain average.
  */
-function bell(value: number, ideal: number, sigma: number) {
+function bell(value: number, ideal: number, sigma: number, above = 1) {
   const z = (value - ideal) / Math.max(sigma, 1e-6);
-  const s = 8 * Math.exp(-0.48 * z * z);
+  const w = z > 0 ? z / above : -z;
+  const s = 8 * Math.exp(-0.48 * w * w);
   return Math.round(Math.min(8, Math.max(1, s)) * 10) / 10;
 }
 
@@ -165,7 +161,17 @@ export function analyzeFace(landmarks: Pt[], gender: Gender, image: { w: number;
   // Hair sitting on the brow pulls the upper brow points up and the gap explodes.
   if (browGap > eyeOpen * 2.2) browGap = lowBrowGap;
   if (browGap > eyeOpen * 2.2) browGap = faceH * (gender === "female" ? 0.12 : 0.1);
-  const tilt = (canthal(p(I.leftOuter), p(I.leftInner)) + canthal(p(I.rightOuter), p(I.rightInner))) / 2;
+  const roll = Math.atan2(p(I.rightOuter).y - p(I.leftOuter).y, p(I.rightOuter).x - p(I.leftOuter).x);
+  const tiltOf = (outer: Pt, inner: Pt) => {
+    const dx = inner.x - outer.x;
+    const dy = inner.y - outer.y;
+    const c = Math.cos(-roll);
+    const s = Math.sin(-roll);
+    const ry = dx * s + dy * c;
+    const rx = dx * c - dy * s;
+    return (Math.atan2(ry, Math.abs(rx)) * 180) / Math.PI;
+  };
+  const tilt = (tiltOf(p(I.leftOuter), p(I.leftInner)) + tiltOf(p(I.rightOuter), p(I.rightInner))) / 2;
   const jawAng = angleAt(p(I.jawLeft), p(I.chin), p(I.jawRight));
 
   const wh = faceW / faceH;
@@ -176,8 +182,13 @@ export function analyzeFace(landmarks: Pt[], gender: Gender, image: { w: number;
   const noseMouth = noseW / mouthW;
   const jawCheek = jawW / faceW;
   const mouthFace = mouthW / faceW;
-  const lipRatio = lipH / mouthW;
-  const lipBalance = upperLip / (lowerLip || 1);
+  const lipRatioRaw = lipH / mouthW;
+  const mouthGap = Math.abs(p(I.lipInnerTop).y - p(I.lipInnerBot).y) / mouthW;
+  let lipBalance = upperLip / (lowerLip || 1);
+  if (mouthGap > 0.045) {
+    const trust = Math.max(0, 1 - (mouthGap - 0.045) / 0.08);
+    lipBalance = lipBalance * trust + 0.58 * (1 - trust);
+  }
   const eyeRatio = eyeOpen / eyeAvg;
   const browRatio = browGap / faceH;
 
@@ -202,8 +213,12 @@ export function analyzeFace(landmarks: Pt[], gender: Gender, image: { w: number;
 
   const jawIdeal = gender === "female" ? 0.77 : gender === "male" ? 0.79 : 0.78;
   const whIdeal = gender === "female" ? 0.81 : gender === "male" ? 0.82 : 0.815;
-  const lipIdeal = gender === "female" ? 0.36 : gender === "male" ? 0.33 : 0.345;
-  const tiltIdeal = gender === "female" ? 5.6 : gender === "male" ? 5 : 5.3;
+  const mouthIdeal = gender === "female" ? 0.36 : gender === "male" ? 0.4 : 0.38;
+  const lipIdeal = gender === "female" ? 0.37 : gender === "male" ? 0.31 : 0.34;
+  const openIdeal = gender === "female" ? 0.35 : gender === "male" ? 0.31 : 0.33;
+  let lipRatio = lipRatioRaw;
+  if (mouthGap > 0.08) lipRatio = lipRatio * 0.55 + lipIdeal * 0.45;
+  const tiltIdeal = gender === "female" ? 5.2 : gender === "male" ? 4.8 : 5;
   const eyeIdeal = gender === "female" ? 1.1 : gender === "male" ? 1.25 : 1.18;
   const jawAngIdeal = 112;
   const chinLenIdeal = gender === "female" ? 0.165 : gender === "male" ? 0.186 : 0.176;
@@ -219,17 +234,17 @@ export function analyzeFace(landmarks: Pt[], gender: Gender, image: { w: number;
     m("nose_mouth", "Nose / mouth", "harmony", noseMouth, ratio(noseMouth), bell(noseMouth, 0.63, 0.035), "Nose width against mouth width. A bit narrower than average is the target."),
     m("face_wh", "Width / height", "harmony", wh, ratio(wh), bell(wh, whIdeal, 0.04), "Cheek width against face height. A leaner face scores higher than a wide one."),
     m("nose_mid", "Nose midline", "harmony", noseShift, pct(noseShift), bell(noseShift, 0, 0.016), "How far the nose tip sits off the center of the eyes. A crooked nose drops."),
-    m("mouth_face", "Mouth / face", "features", mouthFace, ratio(mouthFace), bell(mouthFace, 0.39, 0.032), "Mouth width against cheek width."),
+    m("mouth_face", "Mouth / face", "features", mouthFace, ratio(mouthFace), bell(mouthFace, mouthIdeal, 0.07), "Mouth width against cheek width. A typical male reading is about 0.40."),
     m("jaw_cheek", "Jaw / cheek", "structure", jawCheek, ratio(jawCheek), bell(jawCheek, jawIdeal, 0.018), "Jaw width against the cheeks."),
     m("jaw_angle", "Jaw angle", "structure", jawAng, `${jawAng.toFixed(0)}°`, bell(jawAng, jawAngIdeal, 5), "Angle at the chin. On this mesh a balanced chin is about 112°."),
     m("lower_third", "Chin length", "structure", lipToChin, pct(lipToChin), bell(lipToChin, chinLenIdeal, 0.012), "Lower lip to the bottom of the chin."),
     m("jaw_shift", "Jaw balance", "structure", jawShift, pct(jawShift), bell(jawShift, 0, 0.018), "Left jaw against the right jaw. A clearly uneven jaw drops."),
-    m("canthal", "Canthal tilt", "features", tilt, `${tilt.toFixed(1)}°`, bell(tilt, tiltIdeal, 1.05), "Positive means the outer eye corner sits higher than the inner corner."),
-    m("lips", "Lip fullness", "features", lipRatio, ratio(lipRatio), bell(lipRatio, lipIdeal, 0.03), "Lip height divided by mouth width. Thin and very full lips move away from the target."),
-    m("lip_balance", "Lip balance", "features", lipBalance, ratio(lipBalance), bell(lipBalance, 0.57, 0.08), "Upper lip height divided by lower lip height."),
-    m("eye_open", "Eye aperture", "features", eyeRatio, ratio(eyeRatio), bell(eyeRatio, 0.33, 0.028), "How open the eyes are against their width."),
-    m("eye_match", "Eye match", "features", eyeMismatch, pct(eyeMismatch), bell(eyeMismatch, 0, 0.03), "Left eye opening against the right. Uneven eyes drop."),
-    m("mouth_level", "Mouth level", "features", mouthSkew, pct(mouthSkew), bell(mouthSkew, 0, 0.025), "One mouth corner against the other. A clearly uneven mouth drops."),
+    m("canthal", "Canthal tilt", "features", tilt, `${tilt.toFixed(1)}°`, bell(tilt, tiltIdeal, 2.6, 2.4), "Outer eye corner against the inner corner, after the head tilt is removed. Around 5° is the usual reading. A negative tilt drops faster than a higher one."),
+    m("lips", "Lip fullness", "features", lipRatio, ratio(lipRatio), bell(lipRatio, lipIdeal, 0.06, 1.5), "Lip height divided by mouth width, not the gap of an open mouth. Thin lips drop faster than full ones."),
+    m("lip_balance", "Lip balance", "features", lipBalance, ratio(lipBalance), bell(lipBalance, 0.58, 0.11), "Upper lip height divided by lower lip height. Ignored when the mouth is open."),
+    m("eye_open", "Eye aperture", "features", eyeRatio, ratio(eyeRatio), bell(eyeRatio, openIdeal, 0.05), "How open the eyes are against their width."),
+    m("eye_match", "Eye match", "features", eyeMismatch, pct(eyeMismatch), bell(eyeMismatch, 0, 0.032), "Left eye opening against the right. A 2% gap is normal."),
+    m("mouth_level", "Mouth level", "features", mouthSkew, pct(mouthSkew), bell(mouthSkew, 0, 0.05), "One mouth corner against the other. A slight difference is normal."),
     m("brow", "Brow height", "dimorphism", browRatio, pct(browRatio), bell(browRatio, browIdeal, 0.012), "Vertical gap from the eyebrow to the eyelid. A lower male brow scores higher."),
     m("jaw_dim", "Jaw emphasis", "dimorphism", jawMouth, ratio(jawMouth), bell(jawMouth, jawMouthIdeal, 0.2), "Jaw width divided by mouth width."),
     m("tilt_dim", "Eye openness", "dimorphism", eyeRatio, ratio(eyeRatio), bell(eyeRatio, eyeDimIdeal, 0.028), "Eye opening scored for this profile."),
