@@ -182,7 +182,7 @@ export function analyzeFace(landmarks: Pt[], gender: Gender, image: { w: number;
     ) / 10;
 
   return {
-    id: crypto.randomUUID(),
+    id: typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `scan-${Date.now()}`,
     createdAt: new Date().toISOString(),
     overall,
     label: labelFor(overall),

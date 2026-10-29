@@ -40,7 +40,7 @@ type Phase =
   | { name: "home" }
   | { name: "capture" }
   | { name: "scan"; front: Shot; side: Shot | null }
-  | { name: "result"; front: Shot; report: Report; sideOk: boolean }
+  | { name: "result"; front: Shot; side: Shot | null; report: Report; gender: Gender }
   | { name: "history" };
 
 const PROFILE_KEY = "cara-iq-profile";
@@ -125,20 +125,26 @@ export function Studio() {
       {phase.name === "scan" && profile && (
         <Scan
           front={phase.front}
-          side={phase.side}
           gender={profile.gender}
           onFail={() => setPhase({ name: "capture" })}
-          onDone={(report, sideOk, thumb) => {
+          onDone={(report, thumb) => {
             remember({ ...report }, thumb);
-            setPhase({ name: "result", front: phase.front, report, sideOk });
+            setPhase({
+              name: "result",
+              front: phase.front,
+              side: phase.side,
+              report,
+              gender: profile.gender,
+            });
           }}
         />
       )}
       {phase.name === "result" && (
         <Result
           front={phase.front}
+          side={phase.side}
           report={phase.report}
-          sideOk={phase.sideOk}
+          gender={phase.gender}
           onHome={() => setPhase({ name: "home" })}
           onAgain={() => setPhase({ name: "capture" })}
         />
@@ -569,15 +575,13 @@ function Slot({
 
 function Scan({
   front,
-  side,
   gender,
   onDone,
   onFail,
 }: {
   front: Shot;
-  side: Shot | null;
   gender: Gender;
-  onDone: (report: Report, sideOk: boolean, thumb: string) => void;
+  onDone: (report: Report, thumb: string) => void;
   onFail: () => void;
 }) {
   const [status, setStatus] = useState("Finding the face…");
@@ -609,22 +613,18 @@ function Scan({
         setPoints(frontRead.points);
         setLinks(frontRead.links);
         setStatus("Scoring geometry…");
-        let sideOk = false;
-        if (side) {
-          try {
-            await readFace(side.src);
-            sideOk = true;
-          } catch {
-            sideOk = false;
-          }
-        }
         const report = analyzeFace(frontRead.points, gender, {
           w: frontRead.image.naturalWidth,
           h: frontRead.image.naturalHeight,
         });
-        const thumb = thumbnail(frontRead.image);
-        await wait(Math.max(0, 1800 - (performance.now() - started)));
-        if (!stop) doneRef.current(report, side ? sideOk : true, thumb);
+        let thumb = "";
+        try {
+          thumb = thumbnail(frontRead.image);
+        } catch {
+          thumb = "";
+        }
+        await wait(Math.max(0, 700 - (performance.now() - started)));
+        if (!stop) doneRef.current(report, thumb);
       } catch (err) {
         if (!stop) setError(err instanceof Error ? err.message : "Scan failed");
       }
@@ -634,25 +634,25 @@ function Scan({
       stop = true;
       cancelAnimationFrame(frame);
     };
-  }, [front.src, side, gender]);
+  }, [front.src, gender]);
 
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col px-5 py-8">
       <p className="text-sm text-muted">{status}</p>
       <h1 className="mt-2 font-serif text-4xl">Reading the mesh</h1>
-      <div ref={box} className="frame-portrait relative mt-6 overflow-hidden rounded-card bg-surface">
-        <img src={front.src} alt="" className="h-full w-full object-contain" />
-        {points && <MeshOverlay points={points} links={links} progress={progress} />}
-        <div className="scan-bar pointer-events-none absolute inset-x-0 h-16 bg-gradient-to-b from-transparent via-accent/40 to-transparent" />
-      </div>
       {error && (
-        <div className="mt-6">
+        <div className="mt-4">
           <p className="text-muted">{error}</p>
           <button type="button" onClick={onFail} className="mt-4 min-h-12 rounded-full bg-accent px-6 text-accent-ink">
             Try another photo
           </button>
         </div>
       )}
+      <div ref={box} className="frame-portrait relative mt-6 overflow-hidden rounded-card bg-surface">
+        <img src={front.src} alt="" className="h-full w-full object-contain" />
+        {points && <MeshOverlay points={points} links={links} progress={progress} />}
+        <div className="scan-bar pointer-events-none absolute inset-x-0 h-16 bg-gradient-to-b from-transparent via-accent/40 to-transparent" />
+      </div>
     </main>
   );
 }
@@ -734,26 +734,73 @@ function wait(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function withTimeout<T>(work: Promise<T>, ms: number, message: string) {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
 function Result({
   front,
+  side,
   report,
-  sideOk,
+  gender,
   onHome,
   onAgain,
 }: {
   front: Shot;
+  side: Shot | null;
   report: Report;
-  sideOk: boolean;
+  gender: Gender;
   onHome: () => void;
   onAgain: () => void;
 }) {
+  const [view, setView] = useState<"front" | "side">("front");
   const [pillar, setPillar] = useState<Pillar>("harmony");
-  const rows = useMemo(() => report.metrics.filter((m) => m.pillar === pillar), [report, pillar]);
+  const [sideReport, setSideReport] = useState<Report | null>(null);
+  const [sideNote, setSideNote] = useState<string | null>(side ? "Reading the side profile…" : null);
+  const sideMissing = view === "side" && !sideReport;
+  const active = view === "side" && sideReport ? sideReport : report;
+  const shown = useMemo(() => active.metrics.filter((m) => m.pillar === pillar), [active, pillar]);
+  const photo = view === "side" && side ? side.src : front.src;
+
+  useEffect(() => {
+    if (!side) return;
+    let stop = false;
+    (async () => {
+      try {
+        const sideRead = await withTimeout(readFace(side.src), 12000, "The side photo took too long.");
+        if (stop) return;
+        setSideReport(
+          analyzeFace(sideRead.points, gender, {
+            w: sideRead.image.naturalWidth,
+            h: sideRead.image.naturalHeight,
+          }),
+        );
+        setSideNote(null);
+      } catch (err) {
+        if (!stop) setSideNote(err instanceof Error ? err.message : "The side photo could not be scored.");
+      }
+    })();
+    return () => {
+      stop = true;
+    };
+  }, [side, gender]);
 
   return (
     <main className="mx-auto grid min-h-screen max-w-6xl lg:grid-cols-2">
-      <div className="relative min-h-[42vh] bg-surface lg:min-h-screen">
-        <img src={front.src} alt="Analyzed face" className="h-full w-full object-contain" />
+      <div className="relative max-h-[46vh] overflow-hidden bg-surface lg:max-h-none lg:min-h-screen">
+        <img src={photo} alt="Analyzed face" className="h-full max-h-[46vh] w-full object-contain lg:max-h-screen" />
         <button
           type="button"
           onClick={onHome}
@@ -763,36 +810,59 @@ function Result({
         </button>
       </div>
       <div className="px-5 py-6 sm:px-8">
-        <p className="text-sm text-muted">{report.label}</p>
-        <p className="font-serif text-7xl leading-none" style={{ color: scoreTone(report.overall) }}>
-          {report.overall.toFixed(1)}
-        </p>
-        <p className="mt-3 max-w-md text-sm text-muted">{report.note}</p>
-        {!sideOk && (
-          <p className="mt-2 text-sm text-muted">
-            Side photo was not readable as a face. Front landmarks still drove the score.
-          </p>
-        )}
-        <div className="mt-6 grid grid-cols-2 gap-2">
-          {PILLARS.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => setPillar(p.id)}
-              className={`rounded-2xl border p-3 text-left ${pillar === p.id ? "border-accent bg-surface-2" : "border-line bg-surface"}`}
-            >
-              <p className="text-sm text-muted">{p.title}</p>
-              <p className="font-serif text-3xl" style={{ color: scoreTone(report.pillars[p.id]) }}>
-                {report.pillars[p.id].toFixed(1)}
-              </p>
-            </button>
-          ))}
+        <div className="mb-5 flex gap-2">
+          <button
+            type="button"
+            onClick={() => setView("front")}
+            className={`min-h-11 flex-1 rounded-full border text-sm ${view === "front" ? "border-accent bg-surface-2" : "border-line"}`}
+          >
+            Front
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("side")}
+            className={`min-h-11 flex-1 rounded-full border text-sm ${view === "side" ? "border-accent bg-surface-2" : "border-line"}`}
+          >
+            Side profile
+          </button>
         </div>
-        <ul className="mt-6 divide-y divide-line">
-          {rows.map((row) => (
-            <MetricRow key={row.id} metric={row} />
-          ))}
-        </ul>
+        {sideMissing ? (
+          <p className="max-w-md text-sm text-muted">
+            {side
+              ? sideNote || "That side photo could not be scored. Use a clear profile where the nose, lips, and chin are visible."
+              : "No side photo was added. Go back and add one if you want profile ratings. Front ratings are on the Front tab."}
+          </p>
+        ) : (
+          <>
+            <p className="text-sm text-muted">
+              {view === "side" ? "Side profile" : "Front"} · {active.label}
+            </p>
+            <p className="font-serif text-7xl leading-none" style={{ color: scoreTone(active.overall) }}>
+              {active.overall.toFixed(1)}
+            </p>
+            <p className="mt-3 max-w-md text-sm text-muted">{active.note}</p>
+            <div className="mt-6 grid grid-cols-2 gap-2">
+              {PILLARS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setPillar(p.id)}
+                  className={`rounded-2xl border p-3 text-left ${pillar === p.id ? "border-accent bg-surface-2" : "border-line bg-surface"}`}
+                >
+                  <p className="text-sm text-muted">{p.title}</p>
+                  <p className="font-serif text-3xl" style={{ color: scoreTone(active.pillars[p.id]) }}>
+                    {active.pillars[p.id].toFixed(1)}
+                  </p>
+                </button>
+              ))}
+            </div>
+            <ul className="mt-6 divide-y divide-line">
+              {shown.map((row) => (
+                <MetricRow key={row.id} metric={row} />
+              ))}
+            </ul>
+          </>
+        )}
         <button
           type="button"
           onClick={onAgain}
