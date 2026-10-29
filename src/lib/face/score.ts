@@ -160,29 +160,37 @@ export function analyzeFace(landmarks: Pt[], gender: Gender, image: { w: number;
   const eyeRatio = eyeOpen / eyeAvg;
   const browRatio = browGap / faceH;
 
-  const jawIdeal = gender === "female" ? 0.74 : gender === "male" ? 0.86 : 0.8;
-  const whIdeal = gender === "female" ? 0.74 : 0.78;
-  const lipIdeal = gender === "female" ? 0.36 : gender === "male" ? 0.28 : 0.32;
-  const tiltIdeal = gender === "female" ? 7 : gender === "male" ? 5.5 : 6;
+  const lipToChin = Math.abs(p(I.chin).y - p(I.lipOuterBot).y) / faceH;
+  const jawMouth = jawW / mouthW;
+
+  const jawIdeal = gender === "female" ? 0.77 : gender === "male" ? 0.8 : 0.785;
+  const whIdeal = gender === "female" ? 0.8 : gender === "male" ? 0.815 : 0.81;
+  const lipIdeal = gender === "female" ? 0.36 : gender === "male" ? 0.3 : 0.33;
+  const tiltIdeal = gender === "female" ? 6.2 : gender === "male" ? 5.2 : 5.7;
+  const eyeIdeal = gender === "female" ? 1.1 : gender === "male" ? 1.22 : 1.16;
+  const jawAngIdeal = 112;
+  const chinLenIdeal = gender === "female" ? 0.165 : gender === "male" ? 0.19 : 0.175;
+  const jawMouthIdeal = gender === "female" ? 1.95 : gender === "male" ? 2.15 : 2.05;
+  const eyeDimIdeal = gender === "female" ? 0.36 : gender === "male" ? 0.31 : 0.34;
 
   const metrics: Metric[] = [
-    m("thirds_upper", "Upper third", "harmony", thirdsU, pct(thirdsU), bell(thirdsU, 0.33, 0.06), "Share of the face from hairline to brow. Near 33% is the even split."),
-    m("thirds_mid", "Middle third", "harmony", thirdsM, pct(thirdsM), bell(thirdsM, 0.28, 0.06), "Brow to the base of the nose. The mesh reads this a little shorter than a textbook third."),
-    m("thirds_low", "Lower third", "harmony", thirdsL, pct(thirdsL), bell(thirdsL, 0.39, 0.06), "Nose base to chin. A short or very long lower third pulls harmony down."),
-    m("eye_space", "Eye spacing", "harmony", eyeSpace, ratio(eyeSpace), bell(eyeSpace, 1.02, 0.16), "Gap between the eyes, in eye-widths. About 1 means one eye fits between them."),
-    m("nose_mouth", "Nose / mouth", "harmony", noseMouth, ratio(noseMouth), bell(noseMouth, 0.68, 0.12), "Nose width against mouth width."),
-    m("face_wh", "Width / height", "harmony", wh, ratio(wh), bell(wh, whIdeal, 0.07), "How wide the cheeks are compared with forehead-to-chin height."),
-    m("mouth_face", "Mouth / face", "features", mouthFace, ratio(mouthFace), bell(mouthFace, 0.4, 0.07), "Mouth width against cheek width."),
-    m("jaw_cheek", "Jaw / cheek", "structure", jawCheek, ratio(jawCheek), bell(jawCheek, jawIdeal, 0.08), "Jaw width against the cheeks."),
-    m("jaw_angle", "Jaw angle", "structure", jawAng, `${jawAng.toFixed(0)}°`, bell(jawAng, gender === "male" ? 125 : 132, 14), "Angle under the chin. Sharper reads more structured."),
-    m("lower_third", "Chin length", "structure", thirdsL, pct(thirdsL), bell(thirdsL, gender === "male" ? 0.4 : 0.37, 0.055), "How much of the face sits below the nose."),
-    m("canthal", "Canthal tilt", "features", tilt, `${tilt.toFixed(1)}°`, bell(tilt, tiltIdeal, 4.2), "Positive means the outer eye corner sits higher than the inner corner."),
-    m("lips", "Lip fullness", "features", lipRatio, ratio(lipRatio), bell(lipRatio, lipIdeal, 0.1), "Upper plus lower lip height, divided by mouth width. Different lips now score differently."),
-    m("lip_balance", "Lip balance", "features", lipBalance, ratio(lipBalance), bell(lipBalance, gender === "female" ? 0.8 : 0.72, 0.2), "Upper lip height divided by lower lip height."),
-    m("eye_open", "Eye aperture", "features", eyeRatio, ratio(eyeRatio), bell(eyeRatio, 0.32, 0.08), "How open the eyes are against their width."),
-    m("brow", "Brow height", "dimorphism", browRatio, pct(browRatio), bell(browRatio, gender === "male" ? 0.09 : 0.11, 0.045), "Vertical gap from the eyebrow straight down to the eyelid, as a share of face height."),
-    m("jaw_dim", "Jaw emphasis", "dimorphism", jawCheek, ratio(jawCheek), bell(jawCheek, jawIdeal, 0.08), "Jaw width scored for this profile."),
-    m("tilt_dim", "Orbital tilt", "dimorphism", tilt, `${tilt.toFixed(1)}°`, bell(tilt, tiltIdeal, 4), "Canthal tilt against a male or female target."),
+    m("thirds_upper", "Upper third", "harmony", thirdsU, pct(thirdsU), bell(thirdsU, 0.36, 0.04), "Hairline-to-brow on this mesh. The landmark sits below a real hairline, so a normal reading is about 36%, not a textbook 33%."),
+    m("thirds_mid", "Middle third", "harmony", thirdsM, pct(thirdsM), bell(thirdsM, 0.26, 0.035), "Brow to the base of the nose. A normal mesh reading is about 26%."),
+    m("thirds_low", "Lower third", "harmony", thirdsL, pct(thirdsL), bell(thirdsL, 0.38, 0.04), "Nose base to chin. A normal mesh reading is about 38%."),
+    m("eye_space", "Eye spacing", "harmony", eyeSpace, ratio(eyeSpace), bell(eyeSpace, eyeIdeal, 0.14), "Gap between the eyes, in eye-widths. This mesh reads a normal male gap near 1.22 and a normal female gap near 1.10."),
+    m("nose_mouth", "Nose / mouth", "harmony", noseMouth, ratio(noseMouth), bell(noseMouth, 0.64, 0.1), "Nose width against mouth width. A normal reading is about 0.64."),
+    m("face_wh", "Width / height", "harmony", wh, ratio(wh), bell(wh, whIdeal, 0.055), "Cheek width against forehead-to-chin. The mesh forehead is short, so a normal face is about 0.81, not 0.75."),
+    m("mouth_face", "Mouth / face", "features", mouthFace, ratio(mouthFace), bell(mouthFace, 0.39, 0.07), "Mouth width against cheek width."),
+    m("jaw_cheek", "Jaw / cheek", "structure", jawCheek, ratio(jawCheek), bell(jawCheek, jawIdeal, 0.06), "Jaw width against the cheeks. A normal mesh reading is about 0.78 to 0.80."),
+    m("jaw_angle", "Jaw angle", "structure", jawAng, `${jawAng.toFixed(0)}°`, bell(jawAng, jawAngIdeal, 11), "Angle at the chin between the jaw points. On this mesh a normal chin is about 112°, not the textbook gonial angle."),
+    m("lower_third", "Chin length", "structure", lipToChin, pct(lipToChin), bell(lipToChin, chinLenIdeal, 0.03), "Lower lip to the bottom of the chin, as a share of face height. This is not a copy of the lower third."),
+    m("canthal", "Canthal tilt", "features", tilt, `${tilt.toFixed(1)}°`, bell(tilt, tiltIdeal, 3.5), "Positive means the outer eye corner sits higher than the inner corner."),
+    m("lips", "Lip fullness", "features", lipRatio, ratio(lipRatio), bell(lipRatio, lipIdeal, 0.08), "Upper plus lower lip height, divided by mouth width."),
+    m("lip_balance", "Lip balance", "features", lipBalance, ratio(lipBalance), bell(lipBalance, 0.56, 0.14), "Upper lip height divided by lower lip height. On this mesh the upper lip is usually a bit over half the lower lip."),
+    m("eye_open", "Eye aperture", "features", eyeRatio, ratio(eyeRatio), bell(eyeRatio, 0.34, 0.06), "How open the eyes are against their width."),
+    m("brow", "Brow height", "dimorphism", browRatio, pct(browRatio), bell(browRatio, gender === "male" ? 0.098 : 0.125, 0.035), "Vertical gap from the eyebrow to the eyelid, as a share of face height."),
+    m("jaw_dim", "Jaw emphasis", "dimorphism", jawMouth, ratio(jawMouth), bell(jawMouth, jawMouthIdeal, 0.28), "Jaw width divided by mouth width. A heavier jaw relative to the mouth scores higher for a male reading."),
+    m("tilt_dim", "Eye openness", "dimorphism", eyeRatio, ratio(eyeRatio), bell(eyeRatio, eyeDimIdeal, 0.055), "The same eye opening, scored for this profile. Larger eyes sit closer to a female reading."),
   ];
 
   return pack(
