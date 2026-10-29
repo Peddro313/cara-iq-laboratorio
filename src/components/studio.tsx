@@ -411,53 +411,90 @@ function Home({
   onHistory: () => void;
 }) {
   const last = history[0];
+  const focus = profile.focus.length ? profile.focus : ["Harmony", "Structure", "Features"];
   return (
     <Shell>
-      <div className="rise grid flex-1 items-end gap-10 lg:grid-cols-2">
-        <div>
-          <p className="text-sm text-muted">Hello, {profile.name.trim() || "there"}</p>
-          <h1 className="mt-3 max-w-lg font-serif text-5xl leading-[1.05] sm:text-6xl">
-            Your face. Measured where it actually is.
-          </h1>
-          <p className="mt-5 max-w-md text-muted">
-            Front and side photos. A mesh that follows the face even if it is off to the side.
-            Four pillars, each scored from the landmarks.
-          </p>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={onStart}
-              className="inline-flex min-h-12 items-center gap-2 rounded-full bg-accent px-6 font-medium text-accent-ink"
-            >
-              <ScanFace className="h-4 w-4" />
-              New analysis
-            </button>
-            <button
-              type="button"
-              onClick={onHistory}
-              className="inline-flex min-h-12 items-center gap-2 rounded-full border border-line px-5 text-fg"
-            >
-              <History className="h-4 w-4" />
-              Progress
-            </button>
+      <div className="rise flex flex-1 flex-col gap-5">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-xs tracking-[0.22em] text-accent">{profile.goal || "Your lab"}</p>
+            <h1 className="mt-2 font-serif text-5xl leading-none sm:text-6xl">{profile.name.trim() || "There"}</h1>
+            <p className="mt-3 text-muted">
+              {[profile.age, profile.height, profile.heard && `via ${profile.heard}`].filter(Boolean).join(" · ")}
+            </p>
           </div>
+          <button
+            type="button"
+            onClick={onHistory}
+            className="inline-flex min-h-11 items-center gap-2 rounded-full border border-line px-4 text-sm"
+          >
+            <History className="h-4 w-4" />
+            Progress
+          </button>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+
+        <button
+          type="button"
+          onClick={onStart}
+          className="rounded-card border border-accent/40 bg-surface p-6 text-left transition-transform duration-200 hover:scale-[1.01] sm:p-8"
+        >
+          <div className="flex flex-wrap items-end justify-between gap-6">
+            <div>
+              <p className="text-sm text-muted">Next step</p>
+              <p className="mt-2 font-serif text-4xl leading-tight sm:text-5xl">Put a face in the frame.</p>
+              <p className="mt-3 max-w-lg text-muted">
+                The mesh draws on the photo, wherever the face sits. Front score and side profile open together.
+              </p>
+            </div>
+            <span className="inline-flex min-h-12 items-center gap-2 rounded-full bg-accent px-6 font-medium text-accent-ink">
+              <ScanFace className="h-4 w-4" />
+              Start scan
+            </span>
+          </div>
+        </button>
+
+        <div className="grid gap-3 lg:grid-cols-3">
+          <article className="rounded-card border border-line bg-surface p-5 lg:col-span-2">
+            <p className="text-sm text-muted">You wanted to look at</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {focus.map((item) => (
+                <span key={item} className="rounded-full border border-accent/50 bg-surface-2 px-4 py-2 text-sm">
+                  {item}
+                </span>
+              ))}
+            </div>
+            <p className="mt-4 text-sm text-muted">
+              Skin care {profile.skincare ? profile.skincare.toLowerCase() : "not set"} · face training{" "}
+              {profile.training ? profile.training.toLowerCase() : "not set"}.
+            </p>
+          </article>
+          <article className="rounded-card border border-line bg-surface-2 p-5">
+            <p className="text-sm text-muted">{last ? "Last reading" : "No reading yet"}</p>
+            {last ? (
+              <>
+                <p className="mt-2 font-serif text-6xl leading-none" style={{ color: scoreTone(last.overall) }}>
+                  {last.overall.toFixed(1)}
+                </p>
+                <p className="mt-2 text-sm text-muted">{last.label}</p>
+              </>
+            ) : (
+              <p className="mt-3 font-serif text-3xl leading-tight">Your first score lands here.</p>
+            )}
+          </article>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-4">
           {PILLARS.map((p) => (
-            <article key={p.id} className="rounded-card border border-line bg-surface p-5">
-              <h2 className="font-serif text-2xl">{p.title}</h2>
+            <article key={p.id} className="rounded-card border border-line bg-surface px-4 py-4">
+              <p className="font-serif text-xl">{p.title}</p>
               <p className="mt-1 text-sm text-muted">{p.line}</p>
+              {last && (
+                <p className="mt-3 font-serif text-2xl" style={{ color: scoreTone(last.pillars[p.id]) }}>
+                  {last.pillars[p.id].toFixed(1)}
+                </p>
+              )}
             </article>
           ))}
-          {last && (
-            <article className="rounded-card border border-line bg-surface-2 p-5 sm:col-span-2">
-              <p className="text-sm text-muted">Last reading</p>
-              <p className="mt-1 font-serif text-4xl" style={{ color: scoreTone(last.overall) }}>
-                {last.overall.toFixed(1)}
-              </p>
-              <p className="text-sm text-muted">{last.label}</p>
-            </article>
-          )}
         </div>
       </div>
     </Shell>

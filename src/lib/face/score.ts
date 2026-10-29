@@ -144,7 +144,8 @@ export function analyzeFace(landmarks: Pt[], gender: Gender, image: { w: number;
   const eyeOpen = (d(p(I.leftEyeTop), p(I.leftEyeBot)) + d(p(I.rightEyeTop), p(I.rightEyeBot))) / 2;
   const tilt = (canthal(p(I.leftOuter), p(I.leftInner)) + canthal(p(I.rightOuter), p(I.rightInner))) / 2;
   const jawAng = angleAt(p(I.jawLeft), p(I.chin), p(I.jawRight));
-  const browGap = (d(p(I.browLeft), p(I.leftEyeTop)) + d(p(I.browRight), p(I.rightEyeTop))) / 2;
+  const browGap =
+    (Math.abs(p(105).y - p(I.leftEyeTop).y) + Math.abs(p(334).y - p(I.rightEyeTop).y)) / 2;
 
   const wh = faceW / faceH;
   const thirdsU = upper / thirds;
@@ -179,7 +180,7 @@ export function analyzeFace(landmarks: Pt[], gender: Gender, image: { w: number;
     m("lips", "Lip fullness", "features", lipRatio, ratio(lipRatio), bell(lipRatio, lipIdeal, 0.1), "Upper plus lower lip height, divided by mouth width. Different lips now score differently."),
     m("lip_balance", "Lip balance", "features", lipBalance, ratio(lipBalance), bell(lipBalance, gender === "female" ? 0.8 : 0.72, 0.2), "Upper lip height divided by lower lip height."),
     m("eye_open", "Eye aperture", "features", eyeRatio, ratio(eyeRatio), bell(eyeRatio, 0.32, 0.08), "How open the eyes are against their width."),
-    m("brow", "Brow height", "dimorphism", browRatio, ratio(browRatio), bell(browRatio, gender === "male" ? 0.055 : 0.072, 0.02), "Distance from brow to eyelid. Lower brows read more male."),
+    m("brow", "Brow height", "dimorphism", browRatio, pct(browRatio), bell(browRatio, gender === "male" ? 0.09 : 0.11, 0.045), "Vertical gap from the eyebrow straight down to the eyelid, as a share of face height."),
     m("jaw_dim", "Jaw emphasis", "dimorphism", jawCheek, ratio(jawCheek), bell(jawCheek, jawIdeal, 0.08), "Jaw width scored for this profile."),
     m("tilt_dim", "Orbital tilt", "dimorphism", tilt, `${tilt.toFixed(1)}°`, bell(tilt, tiltIdeal, 4), "Canthal tilt against a male or female target."),
   ];
