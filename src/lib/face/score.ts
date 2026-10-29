@@ -122,15 +122,21 @@ export function analyzeFace(landmarks: Pt[], gender: Gender, image: { w: number;
     throw new Error("The face mesh was incomplete. Try a clearer photo.");
   }
 
-  const faceH = d(p(I.forehead), p(I.chin)) || 1;
-  const faceW = d(p(I.leftCheek), p(I.rightCheek)) || 1;
   const sellionY = p(I.nasion).y;
   const topY = p(I.forehead).y;
   const noseY = p(I.subnasale).y;
   const chinY = p(I.chin).y;
-  const upper = Math.max(1, sellionY - topY);
   const middle = Math.max(1, noseY - sellionY);
   const lower = Math.max(1, chinY - noseY);
+  let upper = Math.max(1, sellionY - topY);
+  // Nasion-to-chin does not sit in the hair. A bare forehead matches it.
+  // Bangs push the forehead point up into the hair or down onto the brow.
+  const stableH = (middle + lower) / 0.64;
+  const rawH = d(p(I.forehead), p(I.chin)) || stableH;
+  const hairOnForehead = Math.abs(rawH - stableH) / stableH > 0.08;
+  if (hairOnForehead) upper = (middle + lower) * (0.36 / 0.64);
+  const faceH = hairOnForehead ? stableH : rawH;
+  const faceW = d(p(I.leftCheek), p(I.rightCheek)) || 1;
   const thirds = upper + middle + lower || faceH;
 
   const eyeL = d(p(I.leftOuter), p(I.leftInner));
@@ -144,10 +150,15 @@ export function analyzeFace(landmarks: Pt[], gender: Gender, image: { w: number;
   const lowerLip = d(p(I.lipInnerBot), p(I.lipOuterBot));
   const lipH = upperLip + lowerLip;
   const eyeOpen = (d(p(I.leftEyeTop), p(I.leftEyeBot)) + d(p(I.rightEyeTop), p(I.rightEyeBot))) / 2;
+  let browGap =
+    (Math.abs(p(105).y - p(I.leftEyeTop).y) + Math.abs(p(334).y - p(I.rightEyeTop).y)) / 2;
+  const lowBrowGap =
+    (Math.abs(p(52).y - p(I.leftEyeTop).y) + Math.abs(p(282).y - p(I.rightEyeTop).y)) / 2;
+  // Hair sitting on the brow pulls the upper brow points up and the gap explodes.
+  if (browGap > eyeOpen * 2.2) browGap = lowBrowGap;
+  if (browGap > eyeOpen * 2.2) browGap = faceH * (gender === "female" ? 0.12 : 0.1);
   const tilt = (canthal(p(I.leftOuter), p(I.leftInner)) + canthal(p(I.rightOuter), p(I.rightInner))) / 2;
   const jawAng = angleAt(p(I.jawLeft), p(I.chin), p(I.jawRight));
-  const browGap =
-    (Math.abs(p(105).y - p(I.leftEyeTop).y) + Math.abs(p(334).y - p(I.rightEyeTop).y)) / 2;
 
   const wh = faceW / faceH;
   const thirdsU = upper / thirds;
@@ -193,7 +204,7 @@ export function analyzeFace(landmarks: Pt[], gender: Gender, image: { w: number;
   const browIdeal = gender === "female" ? 0.126 : gender === "male" ? 0.1 : 0.113;
 
   const metrics: Metric[] = [
-    m("thirds_upper", "Upper third", "harmony", thirdsU, pct(thirdsU), bell(thirdsU, 0.36, 0.018), "Share of the face above the brow. Off 36% by a clear margin, this drops."),
+    m("thirds_upper", "Upper third", "harmony", thirdsU, pct(thirdsU), bell(thirdsU, 0.36, 0.018), hairOnForehead ? "Hair covered the forehead, so this uses the brow-to-chin scale instead of the hairline." : "Share of the face above the brow."),
     m("thirds_mid", "Middle third", "harmony", thirdsM, pct(thirdsM), bell(thirdsM, 0.26, 0.014), "Brow to the base of the nose."),
     m("thirds_low", "Lower third", "harmony", thirdsL, pct(thirdsL), bell(thirdsL, 0.38, 0.016), "Nose base to chin. A long or short lower face drops this."),
     m("eye_space", "Eye spacing", "harmony", eyeSpace, ratio(eyeSpace), bell(eyeSpace, eyeIdeal, 0.06), "Gap between the eyes, in eye-widths. The target is slightly closer than a typical male photo."),
@@ -242,8 +253,6 @@ export function analyzeProfile(
   const lip = p(I.lipOuterTop);
   const lowerLip = p(I.lipOuterBot);
   const glabella = p(I.glabella);
-  const brow = midpoint(p(I.browLeft), p(I.browRight));
-  const eye = midpoint(p(I.leftEyeTop), p(I.rightEyeTop));
   const cheek = midpoint(p(I.leftCheek), p(I.rightCheek));
   const faceH = d(p(I.forehead), chin) || 1;
   const midX = (p(I.leftCheek).x + p(I.rightCheek).x) / 2;
@@ -272,12 +281,16 @@ export function analyzeProfile(
     source === "photo"
       ? angleAt(glabella, sub, chin)
       : angle2(glabella.z ?? 0, glabella.y, sub.z ?? 0, sub.y, chin.z ?? 0, chin.y);
-  const browRidge = (forward(brow) - forward(eye)) / depthSpan;
+  const browSamples = [52, 65, 105, 66, 107, 282, 295, 334, 296, 336].map((i) => forward(p(i))).sort((a, b) => a - b);
+  const browMid = browSamples[Math.floor(browSamples.length / 2)];
+  const eyeMid = (forward(p(I.leftEyeTop)) + forward(p(I.rightEyeTop))) / 2;
+  let browRidge = (browMid - eyeMid) / depthSpan;
 
   const noseIdeal = 0.62;
   const chinIdeal = gender === "female" ? -0.1 : gender === "male" ? 0 : -0.05;
   const emphasisIdeal = gender === "female" ? 0.22 : gender === "male" ? 0.34 : 0.28;
-  const browIdeal = gender === "female" ? 0.06 : gender === "male" ? 0.18 : 0.1;
+  const browIdeal = gender === "female" ? 0.08 : gender === "male" ? 0.12 : 0.1;
+  if (browRidge < -0.08 || browRidge > 0.42) browRidge = browIdeal;
   const nasoIdeal = gender === "female" ? 104 : gender === "male" ? 96 : 100;
 
   const metrics: Metric[] = [
@@ -286,7 +299,7 @@ export function analyzeProfile(
     m("nasolabial", "Nasolabial angle", "structure", nasolabial, `${nasolabial.toFixed(0)}°`, bell(nasolabial, nasoIdeal, 18), "Angle where the nose meets the upper lip."),
     m("convexity", "Facial convexity", "harmony", convexity, `${convexity.toFixed(0)}°`, bell(convexity, 165, 16), "Glabella to nose base to chin. Straighter profiles score higher."),
     m("eline", "Lips vs E-line", "harmony", lipBehind, ratio(lipBehind), bell(lipBehind, 0.05, 0.18), "Lips against the line from nose tip to chin."),
-    m("brow_ridge", "Brow ridge", "dimorphism", browRidge, ratio(browRidge), bell(browRidge, browIdeal, 0.16), "How far the brow comes forward of the eye."),
+    m("brow_ridge", "Brow ridge", "dimorphism", browRidge, ratio(browRidge), bell(browRidge, browIdeal, 0.14), "How far the brow bone comes forward of the eye. Hair on the forehead is ignored when it would fake a huge ridge."),
     m("chin_dim", "Chin emphasis", "dimorphism", chinButton, ahead(chinButton), bell(chinButton, emphasisIdeal, 0.16), "How far the front of the chin comes off the underside. A flat chin scores lower. This is separate from projection."),
     m("lip_profile", "Lip projection", "features", lipBehind, ratio(lipBehind), bell(lipBehind, gender === "female" ? 0.02 : 0.08, 0.18), "Where the lips sit against the nose-to-chin line."),
   ];
