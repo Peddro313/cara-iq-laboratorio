@@ -41,7 +41,7 @@ type Phase =
   | { name: "home" }
   | { name: "capture" }
   | { name: "scan"; front: Shot; side: Shot | null }
-  | { name: "result"; front: Shot; side: Shot | null; report: Report; profile: Report; gender: Gender }
+  | { name: "result"; front: Shot; side: Shot | null; report: Report; profile: Report; gender: Gender; points: Pt[]; links: Conn[] }
   | { name: "history" };
 
 const PROFILE_KEY = "cara-iq-profile-2";
@@ -128,7 +128,7 @@ export function Studio() {
           front={phase.front}
           gender={profile.gender}
           onFail={() => setPhase({ name: "capture" })}
-          onDone={(report, profileReport, thumb) => {
+          onDone={(report, profileReport, thumb, points, links) => {
             remember({ ...report }, thumb);
             setPhase({
               name: "result",
@@ -137,6 +137,8 @@ export function Studio() {
               report,
               profile: profileReport,
               gender: profile.gender,
+              points,
+              links,
             });
           }}
         />
@@ -148,6 +150,8 @@ export function Studio() {
           report={phase.report}
           profile={phase.profile}
           gender={phase.gender}
+          points={phase.points}
+          links={phase.links}
           onHome={() => setPhase({ name: "home" })}
           onAgain={() => setPhase({ name: "capture" })}
         />
@@ -570,7 +574,7 @@ function Scan({
 }: {
   front: Shot;
   gender: Gender;
-  onDone: (report: Report, profile: Report, thumb: string) => void;
+  onDone: (report: Report, profile: Report, thumb: string, points: Pt[], links: Conn[]) => void;
   onFail: () => void;
 }) {
   const [status, setStatus] = useState("Finding the face…");
@@ -585,15 +589,7 @@ function Scan({
 
   useEffect(() => {
     let stop = false;
-    const started = performance.now();
     let frame = 0;
-    const tick = (now: number) => {
-      const p = Math.min(1, (now - started) / 2200);
-      setProgress(p);
-      if (p < 1 && !stop) frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-
     (async () => {
       try {
         setStatus("Mapping landmarks…");
@@ -601,6 +597,7 @@ function Scan({
         if (stop) return;
         setPoints(frontRead.points);
         setLinks(frontRead.links);
+        setProgress(0);
         setStatus("Scoring geometry…");
         const report = analyzeFace(frontRead.points, gender, {
           w: frontRead.image.naturalWidth,
@@ -616,8 +613,15 @@ function Scan({
         } catch {
           thumb = "";
         }
-        await wait(Math.max(0, 700 - (performance.now() - started)));
-        if (!stop) doneRef.current(report, profile, thumb);
+        const drawStarted = performance.now();
+        const tick = (now: number) => {
+          const p = Math.min(1, (now - drawStarted) / 2200);
+          if (!stop) setProgress(p);
+          if (p < 1 && !stop) frame = requestAnimationFrame(tick);
+        };
+        frame = requestAnimationFrame(tick);
+        await wait(2400);
+        if (!stop) doneRef.current(report, profile, thumb, frontRead.points, frontRead.links);
       } catch (err) {
         if (!stop) setError(err instanceof Error ? err.message : "Scan failed");
       }
@@ -673,7 +677,7 @@ function MeshOverlay({ points, links, progress }: { points: Pt[]; links: Conn[];
       const fit = contain(img.naturalWidth || 1, img.naturalHeight || 1, rect.width, rect.height);
       const visible = Math.floor(links.length * progress);
       ctx.strokeStyle = "rgba(196,165,116,0.9)";
-      ctx.lineWidth = 1.1;
+      ctx.lineWidth = 1.6;
       ctx.beginPath();
       for (let i = 0; i < visible; i++) {
         const a = points[links[i].start];
@@ -749,6 +753,8 @@ function Result({
   report,
   profile,
   gender,
+  points,
+  links,
   onHome,
   onAgain,
 }: {
@@ -757,10 +763,13 @@ function Result({
   report: Report;
   profile: Report;
   gender: Gender;
+  points: Pt[];
+  links: Conn[];
   onHome: () => void;
   onAgain: () => void;
 }) {
   const [profileReport, setProfileReport] = useState(profile);
+  const [sidePoints, setSidePoints] = useState<Pt[] | null>(null);
   const [sideNote, setSideNote] = useState<string | null>(
     side ? "Checking the side photo…" : "Estimated from the depth of the front photo.",
   );
@@ -780,6 +789,7 @@ function Result({
             "photo",
           ),
         );
+        setSidePoints(sideRead.points);
         setSideNote("Measured on your side photo.");
       } catch (err) {
         if (!stop) {
@@ -810,22 +820,44 @@ function Result({
           New scan
         </button>
       </div>
-      <ScoreBoard title="Front" photo={front.src} report={report} />
+      <ScoreBoard title="Front" photo={front.src} report={report} points={points} links={links} />
       <div className="my-10 h-px bg-line" />
-      <ScoreBoard title="Side profile" photo={side?.src ?? front.src} report={profileReport} note={sideNote} />
+      <ScoreBoard
+        title="Side profile"
+        photo={side?.src ?? front.src}
+        report={profileReport}
+        note={sideNote}
+        points={sidePoints ?? undefined}
+        links={sidePoints ? links : undefined}
+      />
     </main>
   );
 }
 
-function ScoreBoard({ title, photo, report, note }: { title: string; photo: string; report: Report; note?: string | null }) {
+function ScoreBoard({
+  title,
+  photo,
+  report,
+  note,
+  points,
+  links,
+}: {
+  title: string;
+  photo: string;
+  report: Report;
+  note?: string | null;
+  points?: Pt[];
+  links?: Conn[];
+}) {
   const [pillar, setPillar] = useState<Pillar>("harmony");
   const [open, setOpen] = useState<string | null>(null);
   const shown = useMemo(() => report.metrics.filter((m) => m.pillar === pillar), [report, pillar]);
 
   return (
     <section className="grid items-start gap-8 lg:grid-cols-2">
-      <div className="overflow-hidden rounded-card bg-surface">
+      <div className="relative overflow-hidden rounded-card bg-surface">
         <img src={photo} alt="" className="max-h-[70vh] w-full object-contain" />
+        {points && links && <MeshOverlay points={points} links={links} progress={1} />}
       </div>
       <div>
         <p className="text-xs tracking-[0.22em] text-accent">{title}</p>
