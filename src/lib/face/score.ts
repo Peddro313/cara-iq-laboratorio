@@ -79,11 +79,15 @@ function canthal(outer: Pt, inner: Pt) {
   return (Math.atan2(inner.y - outer.y, Math.abs(inner.x - outer.x)) * 180) / Math.PI;
 }
 
-/** Matching a common proportion tops out around 7. A clear miss falls toward the middle. */
+/**
+ * Locked scale. A normal proportion scores about 6.6. It never prints a 9.
+ * One clear step off is about 4.6. Pillars are a plain average, so one low
+ * row cannot drag the whole face down by two points.
+ */
 function bell(value: number, ideal: number, sigma: number) {
   const z = (value - ideal) / Math.max(sigma, 1e-6);
-  const s = 7.2 * Math.exp(-0.62 * z * z);
-  return Math.round(Math.min(7.2, Math.max(1, s)) * 10) / 10;
+  const s = 6.6 * Math.exp(-0.35 * z * z);
+  return Math.round(Math.min(6.6, Math.max(1, s)) * 10) / 10;
 }
 
 function toPx(p: Pt | undefined, w: number, h: number): Pt {
@@ -94,15 +98,13 @@ function toPx(p: Pt | undefined, w: number, h: number): Pt {
 function mix(xs: number[]) {
   if (!xs.length) return 5;
   const avg = xs.reduce((a, b) => a + b, 0) / xs.length;
-  const low = Math.min(...xs);
-  return Math.round((avg * 0.72 + low * 0.28) * 10) / 10;
+  return Math.round(avg * 10) / 10;
 }
 
 export function labelFor(score: number) {
-  if (score >= 6.8) return "High";
-  if (score >= 5.8) return "Balanced";
-  if (score >= 4.6) return "Average";
-  if (score >= 3.4) return "Soft";
+  if (score >= 6.2) return "Balanced";
+  if (score >= 5.3) return "Average";
+  if (score >= 4.1) return "Soft";
   return "Low";
 }
 
@@ -178,45 +180,46 @@ export function analyzeFace(landmarks: Pt[], gender: Gender, image: { w: number;
   const jawShift =
     Math.abs(Math.abs(upright(p(I.jawLeft)).x) - Math.abs(upright(p(I.jawRight)).x)) / faceW;
 
-  const jawIdeal = gender === "female" ? 0.77 : gender === "male" ? 0.85 : 0.81;
-  const whIdeal = gender === "female" ? 0.78 : gender === "male" ? 0.78 : 0.78;
-  const lipIdeal = gender === "female" ? 0.36 : gender === "male" ? 0.3 : 0.33;
-  const tiltIdeal = gender === "female" ? 7 : gender === "male" ? 7 : 6.4;
-  const eyeIdeal = gender === "female" ? 1.08 : gender === "male" ? 1.14 : 1.11;
-  const jawAngIdeal = gender === "female" ? 114 : 120;
-  const chinLenIdeal = gender === "female" ? 0.165 : gender === "male" ? 0.19 : 0.175;
-  const jawMouthIdeal = gender === "female" ? 1.95 : gender === "male" ? 2.3 : 2.12;
-  const eyeDimIdeal = gender === "female" ? 0.36 : gender === "male" ? 0.3 : 0.33;
+  const jawIdeal = gender === "female" ? 0.77 : gender === "male" ? 0.79 : 0.78;
+  const whIdeal = gender === "female" ? 0.81 : gender === "male" ? 0.82 : 0.815;
+  const lipIdeal = gender === "female" ? 0.36 : gender === "male" ? 0.33 : 0.345;
+  const tiltIdeal = gender === "female" ? 5.6 : gender === "male" ? 5 : 5.3;
+  const eyeIdeal = gender === "female" ? 1.1 : gender === "male" ? 1.25 : 1.18;
+  const jawAngIdeal = 112;
+  const chinLenIdeal = gender === "female" ? 0.165 : gender === "male" ? 0.186 : 0.176;
+  const jawMouthIdeal = gender === "female" ? 2.05 : gender === "male" ? 2.1 : 2.08;
+  const eyeDimIdeal = gender === "female" ? 0.36 : gender === "male" ? 0.33 : 0.345;
+  const browIdeal = gender === "female" ? 0.126 : gender === "male" ? 0.1 : 0.113;
 
   const metrics: Metric[] = [
-    m("thirds_upper", "Upper third", "harmony", thirdsU, pct(thirdsU), bell(thirdsU, 0.36, 0.028), "Share of the face above the brow. Off 36% by a clear margin, this drops."),
-    m("thirds_mid", "Middle third", "harmony", thirdsM, pct(thirdsM), bell(thirdsM, 0.26, 0.022), "Brow to the base of the nose."),
+    m("thirds_upper", "Upper third", "harmony", thirdsU, pct(thirdsU), bell(thirdsU, 0.36, 0.03), "Share of the face above the brow. Off 36% by a clear margin, this drops."),
+    m("thirds_mid", "Middle third", "harmony", thirdsM, pct(thirdsM), bell(thirdsM, 0.26, 0.025), "Brow to the base of the nose."),
     m("thirds_low", "Lower third", "harmony", thirdsL, pct(thirdsL), bell(thirdsL, 0.38, 0.03), "Nose base to chin. A long or short lower face drops this."),
-    m("eye_space", "Eye spacing", "harmony", eyeSpace, ratio(eyeSpace), bell(eyeSpace, eyeIdeal, 0.12), "Gap between the eyes, in eye-widths. The target is slightly closer than a typical male photo."),
-    m("nose_mouth", "Nose / mouth", "harmony", noseMouth, ratio(noseMouth), bell(noseMouth, 0.6, 0.07), "Nose width against mouth width. A bit narrower than average is the target."),
-    m("face_wh", "Width / height", "harmony", wh, ratio(wh), bell(wh, whIdeal, 0.055), "Cheek width against face height. A leaner face scores higher than a wide one."),
-    m("nose_mid", "Nose midline", "harmony", noseShift, pct(noseShift), bell(noseShift, 0, 0.04), "How far the nose tip sits off the center of the eyes. A crooked nose drops."),
-    m("mouth_face", "Mouth / face", "features", mouthFace, ratio(mouthFace), bell(mouthFace, 0.39, 0.05), "Mouth width against cheek width."),
-    m("jaw_cheek", "Jaw / cheek", "structure", jawCheek, ratio(jawCheek), bell(jawCheek, jawIdeal, 0.04), "Jaw width against the cheeks."),
-    m("jaw_angle", "Jaw angle", "structure", jawAng, `${jawAng.toFixed(0)}°`, bell(jawAng, jawAngIdeal, 8), "Angle at the chin. On this mesh a balanced chin is about 112°."),
-    m("lower_third", "Chin length", "structure", lipToChin, pct(lipToChin), bell(lipToChin, chinLenIdeal, 0.02), "Lower lip to the bottom of the chin."),
-    m("jaw_shift", "Jaw balance", "structure", jawShift, pct(jawShift), bell(jawShift, 0, 0.055), "Left jaw against the right jaw. A clearly uneven jaw drops."),
-    m("canthal", "Canthal tilt", "features", tilt, `${tilt.toFixed(1)}°`, bell(tilt, tiltIdeal, 2.6), "Positive means the outer eye corner sits higher than the inner corner."),
-    m("lips", "Lip fullness", "features", lipRatio, ratio(lipRatio), bell(lipRatio, lipIdeal, 0.05), "Lip height divided by mouth width. Thin and very full lips move away from the target."),
-    m("lip_balance", "Lip balance", "features", lipBalance, ratio(lipBalance), bell(lipBalance, 0.56, 0.09), "Upper lip height divided by lower lip height."),
-    m("eye_open", "Eye aperture", "features", eyeRatio, ratio(eyeRatio), bell(eyeRatio, 0.34, 0.04), "How open the eyes are against their width."),
-    m("eye_match", "Eye match", "features", eyeMismatch, pct(eyeMismatch), bell(eyeMismatch, 0, 0.045), "Left eye opening against the right. Uneven eyes drop."),
-    m("mouth_level", "Mouth level", "features", mouthSkew, pct(mouthSkew), bell(mouthSkew, 0, 0.065), "One mouth corner against the other. A clearly uneven mouth drops."),
-    m("brow", "Brow height", "dimorphism", browRatio, pct(browRatio), bell(browRatio, gender === "male" ? 0.082 : 0.13, 0.022), "Vertical gap from the eyebrow to the eyelid. A lower male brow scores higher."),
-    m("jaw_dim", "Jaw emphasis", "dimorphism", jawMouth, ratio(jawMouth), bell(jawMouth, jawMouthIdeal, 0.25), "Jaw width divided by mouth width."),
-    m("tilt_dim", "Eye openness", "dimorphism", eyeRatio, ratio(eyeRatio), bell(eyeRatio, eyeDimIdeal, 0.04), "Eye opening scored for this profile."),
+    m("eye_space", "Eye spacing", "harmony", eyeSpace, ratio(eyeSpace), bell(eyeSpace, eyeIdeal, 0.14), "Gap between the eyes, in eye-widths. The target is slightly closer than a typical male photo."),
+    m("nose_mouth", "Nose / mouth", "harmony", noseMouth, ratio(noseMouth), bell(noseMouth, 0.63, 0.08), "Nose width against mouth width. A bit narrower than average is the target."),
+    m("face_wh", "Width / height", "harmony", wh, ratio(wh), bell(wh, whIdeal, 0.04), "Cheek width against face height. A leaner face scores higher than a wide one."),
+    m("nose_mid", "Nose midline", "harmony", noseShift, pct(noseShift), bell(noseShift, 0, 0.03), "How far the nose tip sits off the center of the eyes. A crooked nose drops."),
+    m("mouth_face", "Mouth / face", "features", mouthFace, ratio(mouthFace), bell(mouthFace, 0.39, 0.06), "Mouth width against cheek width."),
+    m("jaw_cheek", "Jaw / cheek", "structure", jawCheek, ratio(jawCheek), bell(jawCheek, jawIdeal, 0.035), "Jaw width against the cheeks."),
+    m("jaw_angle", "Jaw angle", "structure", jawAng, `${jawAng.toFixed(0)}°`, bell(jawAng, jawAngIdeal, 9), "Angle at the chin. On this mesh a balanced chin is about 112°."),
+    m("lower_third", "Chin length", "structure", lipToChin, pct(lipToChin), bell(lipToChin, chinLenIdeal, 0.025), "Lower lip to the bottom of the chin."),
+    m("jaw_shift", "Jaw balance", "structure", jawShift, pct(jawShift), bell(jawShift, 0, 0.04), "Left jaw against the right jaw. A clearly uneven jaw drops."),
+    m("canthal", "Canthal tilt", "features", tilt, `${tilt.toFixed(1)}°`, bell(tilt, tiltIdeal, 2.4), "Positive means the outer eye corner sits higher than the inner corner."),
+    m("lips", "Lip fullness", "features", lipRatio, ratio(lipRatio), bell(lipRatio, lipIdeal, 0.055), "Lip height divided by mouth width. Thin and very full lips move away from the target."),
+    m("lip_balance", "Lip balance", "features", lipBalance, ratio(lipBalance), bell(lipBalance, 0.57, 0.11), "Upper lip height divided by lower lip height."),
+    m("eye_open", "Eye aperture", "features", eyeRatio, ratio(eyeRatio), bell(eyeRatio, 0.33, 0.045), "How open the eyes are against their width."),
+    m("eye_match", "Eye match", "features", eyeMismatch, pct(eyeMismatch), bell(eyeMismatch, 0, 0.04), "Left eye opening against the right. Uneven eyes drop."),
+    m("mouth_level", "Mouth level", "features", mouthSkew, pct(mouthSkew), bell(mouthSkew, 0, 0.045), "One mouth corner against the other. A clearly uneven mouth drops."),
+    m("brow", "Brow height", "dimorphism", browRatio, pct(browRatio), bell(browRatio, browIdeal, 0.025), "Vertical gap from the eyebrow to the eyelid. A lower male brow scores higher."),
+    m("jaw_dim", "Jaw emphasis", "dimorphism", jawMouth, ratio(jawMouth), bell(jawMouth, jawMouthIdeal, 0.35), "Jaw width divided by mouth width."),
+    m("tilt_dim", "Eye openness", "dimorphism", eyeRatio, ratio(eyeRatio), bell(eyeRatio, eyeDimIdeal, 0.045), "Eye opening scored for this profile."),
   ];
 
   return pack(
     metrics,
     gender === "other"
-      ? "Even proportions now sit in the middle of the scale. A 7 is a close match, not a perfect face."
-      : `Read as ${gender}. Even, common proportions sit around the middle. Higher means closer to a sharper target, not just a normal face.`,
+      ? "A normal face sits around 6. Nothing here is scored out of 9."
+      : `Read as ${gender}. A normal face sits around 6. A row at 6.6 is a typical proportion, not a perfect one.`,
   );
 }
 
