@@ -24,6 +24,18 @@ export type Report = {
   note: string;
 };
 
+/** Brow-based hairline. Landmark 10 follows hair, so a covered forehead uses this instead. */
+export function foreheadGuide(points: Pt[]) {
+  const y = (i: number) => points[i]?.y ?? 0;
+  const brow = (y(105) + y(334) + y(66) + y(296)) / 4;
+  const chin = y(152);
+  const skin = brow - 0.26 * (chin - brow);
+  const mesh = y(10);
+  const span = Math.max(1e-4, chin - skin);
+  const covered = Math.abs(mesh - skin) / span > 0.02;
+  return { y: covered ? skin : mesh, covered };
+}
+
 const I = {
   forehead: 10,
   glabella: 9,
@@ -122,20 +134,16 @@ export function analyzeFace(landmarks: Pt[], gender: Gender, image: { w: number;
     throw new Error("The face mesh was incomplete. Try a clearer photo.");
   }
 
+  const guide = foreheadGuide(landmarks);
   const sellionY = p(I.nasion).y;
-  const topY = p(I.forehead).y;
   const noseY = p(I.subnasale).y;
   const chinY = p(I.chin).y;
+  const topY = guide.y * image.h;
+  const hairOnForehead = guide.covered;
   const middle = Math.max(1, noseY - sellionY);
   const lower = Math.max(1, chinY - noseY);
-  let upper = Math.max(1, sellionY - topY);
-  // Nasion-to-chin does not sit in the hair. A bare forehead matches it.
-  // Bangs push the forehead point up into the hair or down onto the brow.
-  const stableH = (middle + lower) / 0.64;
-  const rawH = d(p(I.forehead), p(I.chin)) || stableH;
-  const hairOnForehead = Math.abs(rawH - stableH) / stableH > 0.08;
-  if (hairOnForehead) upper = (middle + lower) * (0.36 / 0.64);
-  const faceH = hairOnForehead ? stableH : rawH;
+  const upper = Math.max(1, sellionY - topY);
+  const faceH = hairOnForehead ? Math.max(1, chinY - topY) : d(p(I.forehead), p(I.chin)) || 1;
   const faceW = d(p(I.leftCheek), p(I.rightCheek)) || 1;
   const thirds = upper + middle + lower || faceH;
 
@@ -204,12 +212,12 @@ export function analyzeFace(landmarks: Pt[], gender: Gender, image: { w: number;
   const browIdeal = gender === "female" ? 0.126 : gender === "male" ? 0.1 : 0.113;
 
   const metrics: Metric[] = [
-    m("thirds_upper", "Upper third", "harmony", thirdsU, pct(thirdsU), bell(thirdsU, 0.36, 0.018), hairOnForehead ? "Hair covered the forehead, so this uses the brow-to-chin scale instead of the hairline." : "Share of the face above the brow."),
-    m("thirds_mid", "Middle third", "harmony", thirdsM, pct(thirdsM), bell(thirdsM, 0.26, 0.014), "Brow to the base of the nose."),
-    m("thirds_low", "Lower third", "harmony", thirdsL, pct(thirdsL), bell(thirdsL, 0.38, 0.016), "Nose base to chin. A long or short lower face drops this."),
+    m("thirds_upper", "Upper third", "harmony", thirdsU, pct(thirdsU), bell(thirdsU, 0.36, 0.03), hairOnForehead ? "Hair covered the forehead, so this uses the brow-to-chin scale instead of the hairline." : "Share of the face above the brow."),
+    m("thirds_mid", "Middle third", "harmony", thirdsM, pct(thirdsM), bell(thirdsM, 0.26, 0.032), "Brow to the base of the nose."),
+    m("thirds_low", "Lower third", "harmony", thirdsL, pct(thirdsL), bell(thirdsL, 0.38, 0.04), "Nose base to chin. A long or short lower face drops this."),
     m("eye_space", "Eye spacing", "harmony", eyeSpace, ratio(eyeSpace), bell(eyeSpace, eyeIdeal, 0.06), "Gap between the eyes, in eye-widths. The target is slightly closer than a typical male photo."),
     m("nose_mouth", "Nose / mouth", "harmony", noseMouth, ratio(noseMouth), bell(noseMouth, 0.63, 0.035), "Nose width against mouth width. A bit narrower than average is the target."),
-    m("face_wh", "Width / height", "harmony", wh, ratio(wh), bell(wh, whIdeal, 0.022), "Cheek width against face height. A leaner face scores higher than a wide one."),
+    m("face_wh", "Width / height", "harmony", wh, ratio(wh), bell(wh, whIdeal, 0.04), "Cheek width against face height. A leaner face scores higher than a wide one."),
     m("nose_mid", "Nose midline", "harmony", noseShift, pct(noseShift), bell(noseShift, 0, 0.016), "How far the nose tip sits off the center of the eyes. A crooked nose drops."),
     m("mouth_face", "Mouth / face", "features", mouthFace, ratio(mouthFace), bell(mouthFace, 0.39, 0.032), "Mouth width against cheek width."),
     m("jaw_cheek", "Jaw / cheek", "structure", jawCheek, ratio(jawCheek), bell(jawCheek, jawIdeal, 0.018), "Jaw width against the cheeks."),

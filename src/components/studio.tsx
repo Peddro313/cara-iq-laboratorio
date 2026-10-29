@@ -4,6 +4,7 @@ import { readFace, type Conn } from "@/lib/face/detect";
 import {
   analyzeFace,
   analyzeProfile,
+  foreheadGuide,
   scoreTone,
   type Gender,
   type Metric,
@@ -712,24 +713,35 @@ function MeshOverlay({ points, links, progress }: { points: Pt[]; links: Conn[];
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, rect.width, rect.height);
       const fit = contain(img.naturalWidth || 1, img.naturalHeight || 1, rect.width, rect.height);
+      const guide = foreheadGuide(points);
+      const shift = guide.covered ? guide.y - (points[10]?.y ?? guide.y) : 0;
+      const forehead = new Set([10, 109, 67, 103, 54, 338, 297, 332, 284]);
+      const at = (i: number, pt: Pt) => {
+        const y = forehead.has(i) ? pt.y + shift : pt.y;
+        return { x: fit.x + pt.x * fit.w, y: fit.y + y * fit.h };
+      };
       const visible = Math.floor(links.length * progress);
       ctx.strokeStyle = "rgba(196,165,116,0.9)";
       ctx.lineWidth = 1.6;
       ctx.beginPath();
       for (let i = 0; i < visible; i++) {
-        const a = points[links[i].start];
-        const b = points[links[i].end];
+        const link = links[i];
+        const a = points[link.start];
+        const b = points[link.end];
         if (!a || !b) continue;
-        ctx.moveTo(fit.x + a.x * fit.w, fit.y + a.y * fit.h);
-        ctx.lineTo(fit.x + b.x * fit.w, fit.y + b.y * fit.h);
+        const pa = at(link.start, a);
+        const pb = at(link.end, b);
+        ctx.moveTo(pa.x, pa.y);
+        ctx.lineTo(pb.x, pb.y);
       }
       ctx.stroke();
       ctx.fillStyle = "rgba(244,241,234,0.95)";
       const dots = Math.floor(points.length * progress);
       for (let i = 0; i < dots; i += 6) {
         const p = points[i];
+        const dot = at(i, p);
         ctx.beginPath();
-        ctx.arc(fit.x + p.x * fit.w, fit.y + p.y * fit.h, 1.4, 0, Math.PI * 2);
+        ctx.arc(dot.x, dot.y, 1.4, 0, Math.PI * 2);
         ctx.fill();
       }
     };
