@@ -3,6 +3,7 @@ import { Camera, ChevronLeft, History, ImagePlus, ScanFace } from "lucide-react"
 import { readFace, type Conn } from "@/lib/face/detect";
 import {
   analyzeFace,
+  analyzeProfile,
   scoreTone,
   type Gender,
   type Metric,
@@ -40,10 +41,10 @@ type Phase =
   | { name: "home" }
   | { name: "capture" }
   | { name: "scan"; front: Shot; side: Shot | null }
-  | { name: "result"; front: Shot; side: Shot | null; report: Report; gender: Gender }
+  | { name: "result"; front: Shot; side: Shot | null; report: Report; profile: Report; gender: Gender }
   | { name: "history" };
 
-const PROFILE_KEY = "cara-iq-profile";
+const PROFILE_KEY = "cara-iq-profile-2";
 const HISTORY_KEY = "cara-iq-history";
 
 const PILLARS: { id: Pillar; title: string; line: string }[] = [
@@ -127,13 +128,14 @@ export function Studio() {
           front={phase.front}
           gender={profile.gender}
           onFail={() => setPhase({ name: "capture" })}
-          onDone={(report, thumb) => {
+          onDone={(report, profileReport, thumb) => {
             remember({ ...report }, thumb);
             setPhase({
               name: "result",
               front: phase.front,
               side: phase.side,
               report,
+              profile: profileReport,
               gender: profile.gender,
             });
           }}
@@ -144,6 +146,7 @@ export function Studio() {
           front={phase.front}
           side={phase.side}
           report={phase.report}
+          profile={phase.profile}
           gender={phase.gender}
           onHome={() => setPhase({ name: "home" })}
           onAgain={() => setPhase({ name: "capture" })}
@@ -190,9 +193,10 @@ function Shell({
 
 function Onboard({ onDone }: { onDone: (p: Profile) => void }) {
   const [step, setStep] = useState(0);
+  const [pulse, setPulse] = useState("");
   const [draft, setDraft] = useState<Profile>({
     name: "",
-    gender: "male",
+    gender: "" as Gender,
     age: "",
     height: "",
     heard: "",
@@ -202,208 +206,193 @@ function Onboard({ onDone }: { onDone: (p: Profile) => void }) {
     training: "",
   });
 
-  const steps = 5;
-  const can =
-    (step === 0 && draft.name.trim() && draft.age) ||
-    (step === 1 && draft.heard && draft.goal) ||
-    (step === 2 && draft.focus.length > 0) ||
-    (step === 3 && draft.skincare && draft.training) ||
-    step === 4;
+  const questions: Question[] = [
+    {
+      key: "name",
+      kicker: "Name",
+      title: "What should we call you?",
+      hint: "Only stored on this device.",
+      kind: "text",
+    },
+    {
+      key: "gender",
+      kicker: "Reading",
+      title: "How should we read the face?",
+      options: [
+        { id: "male", label: "Male" },
+        { id: "female", label: "Female" },
+        { id: "other", label: "Prefer not to say" },
+      ],
+    },
+    {
+      key: "age",
+      kicker: "Age",
+      title: "How old are you?",
+      options: ["16–17", "18–21", "22–25", "26–30", "31–40", "41+"].map((id) => ({ id, label: id })),
+    },
+    {
+      key: "height",
+      kicker: "Height",
+      title: "How tall are you?",
+      options: ["Under 160 cm", "160–170 cm", "170–180 cm", "180–190 cm", "Over 190 cm"].map((id) => ({
+        id,
+        label: id,
+      })),
+    },
+    {
+      key: "heard",
+      kicker: "Discovery",
+      title: "Where did you first hear about this?",
+      options: ["TikTok", "Instagram", "YouTube", "A friend", "Search"].map((id) => ({ id, label: id })),
+    },
+    {
+      key: "goal",
+      kicker: "Reason",
+      title: "Why did you install it?",
+      options: ["See my rating", "Get tips to improve", "Track progress", "Understand my features"].map((id) => ({
+        id,
+        label: id,
+      })),
+    },
+    {
+      key: "focus",
+      kicker: "Focus",
+      title: "What do you most want to change?",
+      hint: "Choose every area that matters.",
+      multi: true,
+      options: ["Nose", "Lips", "Jaw", "Eyes", "Skin", "Cheekbones", "Chin"].map((id) => ({ id, label: id })),
+    },
+    {
+      key: "skincare",
+      kicker: "Skin",
+      title: "How often do you take care of your skin?",
+      options: ["Rarely", "A few times a month", "A few times a week", "Every day"].map((id) => ({ id, label: id })),
+    },
+    {
+      key: "training",
+      kicker: "Training",
+      title: "How often do you train your face or posture?",
+      hint: "Jaw work, mewing, or just holding yourself better.",
+      options: ["Rarely", "A few times a month", "A few times a week", "Every day"].map((id) => ({ id, label: id })),
+    },
+  ];
+
+  const current = questions[step];
+  const total = questions.length;
+  const selected = valueOf(draft, current.key);
+  const ready =
+    current.kind === "text"
+      ? draft.name.trim().length > 0
+      : current.multi
+        ? draft.focus.length > 0
+        : Boolean(selected);
+
+  function choose(id: string) {
+    setPulse(id);
+    if (current.multi) {
+      const focus = draft.focus.includes(id) ? draft.focus.filter((x) => x !== id) : [...draft.focus, id];
+      setDraft({ ...draft, focus });
+      return;
+    }
+    const next = applyAnswer(draft, current.key, id);
+    setDraft(next);
+    window.setTimeout(() => {
+      if (step === total - 1) onDone(next);
+      else setStep((s) => Math.min(total - 1, s + 1));
+    }, 220);
+  }
 
   return (
-    <Shell eyebrow={`${step + 1} / ${steps}`}>
-      <div className="mb-8 flex gap-2">
-        {Array.from({ length: steps }).map((_, i) => (
-          <span
-            key={i}
-            className={`h-1 flex-1 rounded-full ${i <= step ? "bg-accent" : "bg-line"}`}
-          />
-        ))}
+    <Shell eyebrow={`${step + 1} / ${total}`}>
+      <div className="mb-8 h-1 overflow-hidden rounded-full bg-line">
+        <div
+          className="h-full rounded-full bg-accent transition-all duration-500"
+          style={{ width: `${((step + 1) / total) * 100}%` }}
+        />
       </div>
-      <div key={step} className="rise flex flex-1 flex-col">
-        {step === 0 && (
-          <About draft={draft} setDraft={setDraft} />
-        )}
-        {step === 1 && <Why draft={draft} setDraft={setDraft} />}
-        {step === 2 && <Focus draft={draft} setDraft={setDraft} />}
-        {step === 3 && <Habits draft={draft} setDraft={setDraft} />}
-        {step === 4 && (
-          <div className="max-w-xl">
-            <h1 className="font-serif text-4xl leading-tight sm:text-5xl">
-              The face can sit anywhere in the frame.
-            </h1>
-            <p className="mt-4 max-w-md text-muted">
-              We map 478 landmarks on the photo itself. Scores follow the geometry, not a
-              centered template.
-            </p>
+      <div key={current.key} className="rise flex flex-1 flex-col">
+        <p className="text-xs tracking-[0.22em] text-accent">{current.kicker}</p>
+        <h1 className="mt-3 max-w-xl font-serif text-4xl leading-[1.05] sm:text-6xl">{current.title}</h1>
+        {current.hint && <p className="mt-3 max-w-md text-muted">{current.hint}</p>}
+        {current.kind === "text" ? (
+          <input
+            autoFocus
+            value={draft.name}
+            placeholder="Your name"
+            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+            className="mt-10 w-full border-b border-line bg-transparent pb-3 font-serif text-4xl text-fg outline-none placeholder:text-line sm:text-5xl"
+          />
+        ) : (
+          <div className={`mt-8 grid gap-3 ${current.multi ? "sm:grid-cols-2" : ""}`}>
+            {current.options?.map((option) => {
+              const on = current.multi ? draft.focus.includes(option.id) : selected === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => choose(option.id)}
+                  className={`opt flex min-h-16 items-center justify-between rounded-card border px-5 text-left text-lg ${
+                    on ? "border-accent bg-surface-2" : "border-line bg-surface"
+                  } ${pulse === option.id ? "pop" : ""}`}
+                >
+                  <span>{option.label}</span>
+                  <span className={`grid h-6 w-6 place-items-center rounded-full border ${on ? "border-accent bg-accent" : "border-line"}`}>
+                    {on && <span className="h-2 w-2 rounded-full bg-accent-ink" />}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
         <div className="mt-auto flex items-center justify-between pt-10">
           <button
             type="button"
-            className="min-h-11 px-2 text-muted"
+            className="min-h-11 px-2 text-muted disabled:opacity-30"
             onClick={() => setStep((s) => Math.max(0, s - 1))}
             disabled={step === 0}
           >
             Back
           </button>
-          <button
-            type="button"
-            disabled={!can}
-            onClick={() => (step === 4 ? onDone(draft) : setStep((s) => s + 1))}
-            className="min-h-12 rounded-full bg-accent px-6 font-medium text-accent-ink disabled:opacity-40"
-          >
-            {step === 4 ? "Enter the lab" : "Continue"}
-          </button>
+          {(current.kind === "text" || current.multi || step === total - 1) && (
+            <button
+              type="button"
+              disabled={!ready}
+              onClick={() => (step === total - 1 ? onDone(draft) : setStep((s) => s + 1))}
+              className="min-h-12 rounded-full bg-accent px-6 font-medium text-accent-ink disabled:opacity-40"
+            >
+              {step === total - 1 ? "Enter the lab" : "Continue"}
+            </button>
+          )}
         </div>
       </div>
     </Shell>
   );
 }
 
-function About({
-  draft,
-  setDraft,
-}: {
-  draft: Profile;
-  setDraft: (p: Profile) => void;
-}) {
-  return (
-    <div>
-      <h1 className="font-serif text-4xl sm:text-5xl">About you</h1>
-      <p className="mt-2 text-muted">Used to tune dimorphism. Nothing leaves this device.</p>
-      <label className="mt-8 block text-sm text-muted">
-        Name
-        <input
-          value={draft.name}
-          onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-          className="mt-2 w-full rounded-2xl border border-line bg-surface px-4 py-3 text-fg outline-none"
-        />
-      </label>
-      <p className="mt-6 text-sm text-muted">Gender</p>
-      <div className="mt-2 flex flex-wrap gap-2">
-        {(["male", "female", "other"] as Gender[]).map((g) => (
-          <Choice
-            key={g}
-            active={draft.gender === g}
-            label={g === "other" ? "Prefer not to say" : g[0].toUpperCase() + g.slice(1)}
-            onClick={() => setDraft({ ...draft, gender: g })}
-          />
-        ))}
-      </div>
-      <div className="mt-6 grid grid-cols-2 gap-3">
-        <label className="text-sm text-muted">
-          Age
-          <input
-            inputMode="numeric"
-            value={draft.age}
-            onChange={(e) => setDraft({ ...draft, age: e.target.value })}
-            className="mt-2 w-full rounded-2xl border border-line bg-surface px-4 py-3 text-fg outline-none"
-          />
-        </label>
-        <label className="text-sm text-muted">
-          Height cm
-          <input
-            inputMode="numeric"
-            value={draft.height}
-            onChange={(e) => setDraft({ ...draft, height: e.target.value })}
-            className="mt-2 w-full rounded-2xl border border-line bg-surface px-4 py-3 text-fg outline-none"
-          />
-        </label>
-      </div>
-    </div>
-  );
+type Question = {
+  key: keyof Profile | "focus";
+  kicker: string;
+  title: string;
+  hint?: string;
+  kind?: "text";
+  multi?: boolean;
+  options?: { id: string; label: string }[];
+};
+
+function valueOf(draft: Profile, key: Question["key"]) {
+  if (key === "focus") return draft.focus[0] ?? "";
+  return String(draft[key] ?? "");
 }
 
-function Why({ draft, setDraft }: { draft: Profile; setDraft: (p: Profile) => void }) {
-  const heard = ["TikTok", "Instagram", "YouTube", "A friend", "Search"];
-  const goals = ["See my rating", "Get tips", "Track progress", "Learn the features"];
-  return (
-    <div>
-      <h1 className="font-serif text-4xl sm:text-5xl">Why you are here</h1>
-      <p className="mt-6 text-sm text-muted">First heard from</p>
-      <div className="mt-2 grid gap-2">
-        {heard.map((h) => (
-          <Row key={h} active={draft.heard === h} label={h} onClick={() => setDraft({ ...draft, heard: h })} />
-        ))}
-      </div>
-      <p className="mt-6 text-sm text-muted">Main goal</p>
-      <div className="mt-2 grid gap-2">
-        {goals.map((h) => (
-          <Row key={h} active={draft.goal === h} label={h} onClick={() => setDraft({ ...draft, goal: h })} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function Focus({ draft, setDraft }: { draft: Profile; setDraft: (p: Profile) => void }) {
-  const opts = ["Nose", "Lips", "Jaw", "Eyes", "Skin", "Harmony", "Cheekbones"];
-  function toggle(o: string) {
-    const focus = draft.focus.includes(o) ? draft.focus.filter((x) => x !== o) : [...draft.focus, o];
-    setDraft({ ...draft, focus });
-  }
-  return (
-    <div>
-      <h1 className="font-serif text-4xl sm:text-5xl">What do you want to understand?</h1>
-      <p className="mt-2 text-muted">Pick any that matter.</p>
-      <div className="mt-6 flex flex-wrap gap-2">
-        {opts.map((o) => (
-          <Choice key={o} active={draft.focus.includes(o)} label={o} onClick={() => toggle(o)} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function Habits({ draft, setDraft }: { draft: Profile; setDraft: (p: Profile) => void }) {
-  const freq = ["Rarely", "A few times a month", "A few times a week", "Daily"];
-  return (
-    <div>
-      <h1 className="font-serif text-4xl sm:text-5xl">Habits</h1>
-      <p className="mt-6 text-sm text-muted">Skincare</p>
-      <div className="mt-2 grid gap-2">
-        {freq.map((h) => (
-          <Row key={h} active={draft.skincare === h} label={h} onClick={() => setDraft({ ...draft, skincare: h })} />
-        ))}
-      </div>
-      <p className="mt-6 text-sm text-muted">Jaw, posture, or face training</p>
-      <div className="mt-2 grid gap-2">
-        {freq.map((h) => (
-          <Row key={`t-${h}`} active={draft.training === h} label={h} onClick={() => setDraft({ ...draft, training: h })} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function Choice({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`min-h-11 rounded-full border px-4 text-sm transition-transform duration-200 ${
-        active ? "scale-105 border-accent bg-accent text-accent-ink" : "border-line bg-surface text-fg"
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
-
-function Row({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex min-h-12 items-center justify-between rounded-2xl border px-4 text-left transition-colors ${
-        active ? "border-accent bg-surface-2" : "border-line bg-surface"
-      }`}
-    >
-      <span>{label}</span>
-      <span className={`h-2.5 w-2.5 rounded-full ${active ? "bg-accent" : "bg-line"}`} />
-    </button>
-  );
+function applyAnswer(draft: Profile, key: Question["key"], id: string): Profile {
+  if (key === "gender") return { ...draft, gender: id as Gender };
+  if (key === "age") return { ...draft, age: id };
+  if (key === "height") return { ...draft, height: id };
+  if (key === "heard") return { ...draft, heard: id };
+  if (key === "goal") return { ...draft, goal: id };
+  if (key === "skincare") return { ...draft, skincare: id };
+  if (key === "training") return { ...draft, training: id };
+  return draft;
 }
 
 function Home({
@@ -581,7 +570,7 @@ function Scan({
 }: {
   front: Shot;
   gender: Gender;
-  onDone: (report: Report, thumb: string) => void;
+  onDone: (report: Report, profile: Report, thumb: string) => void;
   onFail: () => void;
 }) {
   const [status, setStatus] = useState("Finding the face…");
@@ -617,6 +606,10 @@ function Scan({
           w: frontRead.image.naturalWidth,
           h: frontRead.image.naturalHeight,
         });
+        const profile = analyzeProfile(frontRead.points, gender, {
+          w: frontRead.image.naturalWidth,
+          h: frontRead.image.naturalHeight,
+        }, "depth");
         let thumb = "";
         try {
           thumb = thumbnail(frontRead.image);
@@ -624,7 +617,7 @@ function Scan({
           thumb = "";
         }
         await wait(Math.max(0, 700 - (performance.now() - started)));
-        if (!stop) doneRef.current(report, thumb);
+        if (!stop) doneRef.current(report, profile, thumb);
       } catch (err) {
         if (!stop) setError(err instanceof Error ? err.message : "Scan failed");
       }
@@ -754,6 +747,7 @@ function Result({
   front,
   side,
   report,
+  profile,
   gender,
   onHome,
   onAgain,
@@ -761,18 +755,15 @@ function Result({
   front: Shot;
   side: Shot | null;
   report: Report;
+  profile: Report;
   gender: Gender;
   onHome: () => void;
   onAgain: () => void;
 }) {
-  const [view, setView] = useState<"front" | "side">("front");
-  const [pillar, setPillar] = useState<Pillar>("harmony");
-  const [sideReport, setSideReport] = useState<Report | null>(null);
-  const [sideNote, setSideNote] = useState<string | null>(side ? "Reading the side profile…" : null);
-  const sideMissing = view === "side" && !sideReport;
-  const active = view === "side" && sideReport ? sideReport : report;
-  const shown = useMemo(() => active.metrics.filter((m) => m.pillar === pillar), [active, pillar]);
-  const photo = view === "side" && side ? side.src : front.src;
+  const [profileReport, setProfileReport] = useState(profile);
+  const [sideNote, setSideNote] = useState<string | null>(
+    side ? "Checking the side photo…" : "Estimated from the depth of the front photo.",
+  );
 
   useEffect(() => {
     if (!side) return;
@@ -781,15 +772,23 @@ function Result({
       try {
         const sideRead = await withTimeout(readFace(side.src), 12000, "The side photo took too long.");
         if (stop) return;
-        setSideReport(
-          analyzeFace(sideRead.points, gender, {
-            w: sideRead.image.naturalWidth,
-            h: sideRead.image.naturalHeight,
-          }),
+        setProfileReport(
+          analyzeProfile(
+            sideRead.points,
+            gender,
+            { w: sideRead.image.naturalWidth, h: sideRead.image.naturalHeight },
+            "photo",
+          ),
         );
-        setSideNote(null);
+        setSideNote("Measured on your side photo.");
       } catch (err) {
-        if (!stop) setSideNote(err instanceof Error ? err.message : "The side photo could not be scored.");
+        if (!stop) {
+          setSideNote(
+            err instanceof Error
+              ? `${err.message} Showing the profile estimated from the front photo instead.`
+              : "Side photo failed. Showing the estimate from the front photo.",
+          );
+        }
       }
     })();
     return () => {
@@ -798,93 +797,95 @@ function Result({
   }, [side, gender]);
 
   return (
-    <main className="mx-auto grid min-h-screen max-w-6xl lg:grid-cols-2">
-      <div className="relative max-h-[46vh] overflow-hidden bg-surface lg:max-h-none lg:min-h-screen">
-        <img src={photo} alt="Analyzed face" className="h-full max-h-[46vh] w-full object-contain lg:max-h-screen" />
-        <button
-          type="button"
-          onClick={onHome}
-          className="absolute left-4 top-4 inline-flex min-h-11 items-center gap-1 rounded-full bg-bg/80 px-3 text-sm"
-        >
+    <main className="mx-auto max-w-6xl px-5 py-6 sm:px-8">
+      <div className="mb-6 flex items-center justify-between">
+        <button type="button" onClick={onHome} className="inline-flex min-h-11 items-center gap-1 text-muted">
           <ChevronLeft className="h-4 w-4" /> Home
         </button>
-      </div>
-      <div className="px-5 py-6 sm:px-8">
-        <div className="mb-5 flex gap-2">
-          <button
-            type="button"
-            onClick={() => setView("front")}
-            className={`min-h-11 flex-1 rounded-full border text-sm ${view === "front" ? "border-accent bg-surface-2" : "border-line"}`}
-          >
-            Front
-          </button>
-          <button
-            type="button"
-            onClick={() => setView("side")}
-            className={`min-h-11 flex-1 rounded-full border text-sm ${view === "side" ? "border-accent bg-surface-2" : "border-line"}`}
-          >
-            Side profile
-          </button>
-        </div>
-        {sideMissing ? (
-          <p className="max-w-md text-sm text-muted">
-            {side
-              ? sideNote || "That side photo could not be scored. Use a clear profile where the nose, lips, and chin are visible."
-              : "No side photo was added. Go back and add one if you want profile ratings. Front ratings are on the Front tab."}
-          </p>
-        ) : (
-          <>
-            <p className="text-sm text-muted">
-              {view === "side" ? "Side profile" : "Front"} · {active.label}
-            </p>
-            <p className="font-serif text-7xl leading-none" style={{ color: scoreTone(active.overall) }}>
-              {active.overall.toFixed(1)}
-            </p>
-            <p className="mt-3 max-w-md text-sm text-muted">{active.note}</p>
-            <div className="mt-6 grid grid-cols-2 gap-2">
-              {PILLARS.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => setPillar(p.id)}
-                  className={`rounded-2xl border p-3 text-left ${pillar === p.id ? "border-accent bg-surface-2" : "border-line bg-surface"}`}
-                >
-                  <p className="text-sm text-muted">{p.title}</p>
-                  <p className="font-serif text-3xl" style={{ color: scoreTone(active.pillars[p.id]) }}>
-                    {active.pillars[p.id].toFixed(1)}
-                  </p>
-                </button>
-              ))}
-            </div>
-            <ul className="mt-6 divide-y divide-line">
-              {shown.map((row) => (
-                <MetricRow key={row.id} metric={row} />
-              ))}
-            </ul>
-          </>
-        )}
         <button
           type="button"
           onClick={onAgain}
-          className="mt-8 min-h-12 w-full rounded-full bg-accent font-medium text-accent-ink"
+          className="min-h-11 rounded-full bg-accent px-5 text-sm font-medium text-accent-ink"
         >
-          Analyze another face
+          New scan
         </button>
       </div>
+      <ScoreBoard title="Front" photo={front.src} report={report} />
+      <div className="my-10 h-px bg-line" />
+      <ScoreBoard title="Side profile" photo={side?.src ?? front.src} report={profileReport} note={sideNote} />
     </main>
   );
 }
 
-function MetricRow({ metric }: { metric: Metric }) {
+function ScoreBoard({ title, photo, report, note }: { title: string; photo: string; report: Report; note?: string | null }) {
+  const [pillar, setPillar] = useState<Pillar>("harmony");
+  const [open, setOpen] = useState<string | null>(null);
+  const shown = useMemo(() => report.metrics.filter((m) => m.pillar === pillar), [report, pillar]);
+
   return (
-    <li className="flex items-center gap-3 py-3">
-      <div className="min-w-0 flex-1">
-        <p>{metric.label}</p>
-        <p className="text-sm text-muted">{metric.display}</p>
+    <section className="grid items-start gap-8 lg:grid-cols-2">
+      <div className="overflow-hidden rounded-card bg-surface">
+        <img src={photo} alt="" className="max-h-[70vh] w-full object-contain" />
       </div>
-      <p className="font-serif text-2xl" style={{ color: scoreTone(metric.score) }}>
-        {metric.score.toFixed(1)}
-      </p>
+      <div>
+        <p className="text-xs tracking-[0.22em] text-accent">{title}</p>
+        <p className="mt-2 font-serif text-7xl leading-none" style={{ color: scoreTone(report.overall) }}>
+          {report.overall.toFixed(1)}
+        </p>
+        <p className="mt-2 text-sm text-muted">
+          {report.label}
+          {note ? ` · ${note}` : ""}
+        </p>
+        <p className="mt-3 max-w-md text-sm text-muted">{report.note}</p>
+        <div className="mt-6 grid grid-cols-2 gap-2">
+          {PILLARS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => {
+                setPillar(p.id);
+                setOpen(null);
+              }}
+              className={`rounded-2xl border p-3 text-left transition-transform duration-200 ${
+                pillar === p.id ? "scale-[1.02] border-accent bg-surface-2" : "border-line bg-surface"
+              }`}
+            >
+              <p className="text-sm text-muted">{p.title}</p>
+              <p className="font-serif text-3xl" style={{ color: scoreTone(report.pillars[p.id]) }}>
+                {report.pillars[p.id].toFixed(1)}
+              </p>
+            </button>
+          ))}
+        </div>
+        <ul className="mt-6">
+          {shown.map((row) => (
+            <MetricRow key={row.id} metric={row} open={open === row.id} onToggle={() => setOpen(open === row.id ? null : row.id)} />
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function MetricRow({ metric, open, onToggle }: { metric: Metric; open: boolean; onToggle: () => void }) {
+  return (
+    <li className="border-b border-line">
+      <button type="button" onClick={onToggle} className="flex w-full items-center gap-3 py-3 text-left">
+        <div className="min-w-0 flex-1">
+          <p>{metric.label}</p>
+          <p className="text-sm text-muted">{metric.display}</p>
+          <span className="mt-2 block h-1 overflow-hidden rounded-full bg-line">
+            <span
+              className="block h-full rounded-full transition-all duration-500"
+              style={{ width: `${metric.score * 10}%`, background: scoreTone(metric.score) }}
+            />
+          </span>
+        </div>
+        <p className="font-serif text-2xl" style={{ color: scoreTone(metric.score) }}>
+          {metric.score.toFixed(1)}
+        </p>
+      </button>
+      {open && <p className="rise pb-3 text-sm text-muted">{metric.detail}</p>}
     </li>
   );
 }

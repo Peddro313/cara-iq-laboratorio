@@ -60,6 +60,26 @@
   animation: rise 480ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
+.opt {
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.pop {
+  animation: pop 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(0.97);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
 .scan-bar {
   animation: scan 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
@@ -70,7 +90,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .rise,
-  .scan-bar {
+  .scan-bar,
+  .pop {
     animation: none;
   }
 }

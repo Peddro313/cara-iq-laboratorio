@@ -11,6 +11,7 @@ export type Metric = {
   raw: number;
   display: string;
   score: number;
+  detail: string;
 };
 
 export type Report = {
@@ -25,6 +26,8 @@ export type Report = {
 
 const I = {
   forehead: 10,
+  glabella: 9,
+  nasion: 6,
   chin: 152,
   leftCheek: 234,
   rightCheek: 454,
@@ -42,8 +45,10 @@ const I = {
   noseRight: 327,
   mouthLeft: 61,
   mouthRight: 291,
-  lipTop: 13,
-  lipBot: 14,
+  lipOuterTop: 0,
+  lipInnerTop: 13,
+  lipInnerBot: 14,
+  lipOuterBot: 17,
   jawLeft: 172,
   jawRight: 397,
   browLeft: 70,
@@ -54,15 +59,19 @@ function d(a: Pt, b: Pt) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-function angleAt(a: Pt, b: Pt, c: Pt) {
-  const abx = a.x - b.x;
-  const aby = a.y - b.y;
-  const cbx = c.x - b.x;
-  const cby = c.y - b.y;
+function angle2(ax: number, ay: number, bx: number, by: number, cx: number, cy: number) {
+  const abx = ax - bx;
+  const aby = ay - by;
+  const cbx = cx - bx;
+  const cby = cy - by;
   const mag = Math.hypot(abx, aby) * Math.hypot(cbx, cby);
   if (mag === 0) return 0;
   const cos = Math.min(1, Math.max(-1, (abx * cbx + aby * cby) / mag));
   return (Math.acos(cos) * 180) / Math.PI;
+}
+
+function angleAt(a: Pt, b: Pt, c: Pt) {
+  return angle2(a.x, a.y, b.x, b.y, c.x, c.y);
 }
 
 /** Positive when the outer corner sits higher than the inner corner. */
@@ -70,28 +79,31 @@ function canthal(outer: Pt, inner: Pt) {
   return (Math.atan2(inner.y - outer.y, Math.abs(inner.x - outer.x)) * 180) / Math.PI;
 }
 
+/** Steep curve. A small miss drops the score. Nothing is pinned at 2.2. */
 function bell(value: number, ideal: number, sigma: number) {
-  const z = (value - ideal) / sigma;
-  const s = 10 * Math.exp(-0.5 * z * z);
-  return Math.round(Math.min(9.8, Math.max(2.2, s)) * 10) / 10;
+  const z = (value - ideal) / Math.max(sigma, 1e-6);
+  const s = 10 * Math.exp(-0.92 * z * z);
+  return Math.round(Math.min(9.6, Math.max(0.6, s)) * 10) / 10;
 }
 
 function toPx(p: Pt | undefined, w: number, h: number): Pt {
-  if (!p) return { x: 0, y: 0 };
-  return { x: p.x * w, y: p.y * h, z: p.z };
+  if (!p) return { x: 0, y: 0, z: 0 };
+  return { x: p.x * w, y: p.y * h, z: (p.z ?? 0) * w };
 }
 
-function mean(xs: number[]) {
+function mix(xs: number[]) {
   if (!xs.length) return 5;
-  return Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 10) / 10;
+  const avg = xs.reduce((a, b) => a + b, 0) / xs.length;
+  const low = Math.min(...xs);
+  return Math.round((avg * 0.62 + low * 0.38) * 10) / 10;
 }
 
 export function labelFor(score: number) {
-  if (score >= 8.8) return "Exceptional";
-  if (score >= 7.6) return "Strong";
-  if (score >= 6.4) return "Balanced";
-  if (score >= 5.2) return "Mixed";
-  if (score >= 4) return "Soft";
+  if (score >= 8.6) return "Exceptional";
+  if (score >= 7.4) return "Strong";
+  if (score >= 6.2) return "Balanced";
+  if (score >= 5) return "Mixed";
+  if (score >= 3.6) return "Soft";
   return "Low";
 }
 
@@ -104,20 +116,20 @@ export function scoreTone(score: number) {
 
 export function analyzeFace(landmarks: Pt[], gender: Gender, image: { w: number; h: number }): Report {
   const p = (i: number) => toPx(landmarks[i], image.w, image.h);
-  if (!p(I.chin) || !p(I.forehead) || landmarks.length < 400) {
+  if (landmarks.length < 400) {
     throw new Error("The face mesh was incomplete. Try a clearer photo.");
   }
 
-  const faceH = d(p(I.forehead), p(I.chin));
-  const faceW = d(p(I.leftCheek), p(I.rightCheek));
-  const sellionY = p(6).y;
+  const faceH = d(p(I.forehead), p(I.chin)) || 1;
+  const faceW = d(p(I.leftCheek), p(I.rightCheek)) || 1;
+  const sellionY = p(I.nasion).y;
   const topY = p(I.forehead).y;
   const noseY = p(I.subnasale).y;
   const chinY = p(I.chin).y;
   const upper = Math.max(1, sellionY - topY);
   const middle = Math.max(1, noseY - sellionY);
   const lower = Math.max(1, chinY - noseY);
-  const thirds = upper + middle + lower || faceH || 1;
+  const thirds = upper + middle + lower || faceH;
 
   const eyeL = d(p(I.leftOuter), p(I.leftInner));
   const eyeR = d(p(I.rightOuter), p(I.rightInner));
@@ -126,61 +138,143 @@ export function analyzeFace(landmarks: Pt[], gender: Gender, image: { w: number;
   const mouthW = d(p(I.mouthLeft), p(I.mouthRight)) || 1;
   const noseW = d(p(I.noseLeft), p(I.noseRight));
   const jawW = d(p(I.jawLeft), p(I.jawRight));
-  const lipH = d(p(I.lipTop), p(I.lipBot));
-  const eyeOpen =
-    (d(p(I.leftEyeTop), p(I.leftEyeBot)) + d(p(I.rightEyeTop), p(I.rightEyeBot))) / 2;
-  const tilt =
-    (canthal(p(I.leftOuter), p(I.leftInner)) + canthal(p(I.rightOuter), p(I.rightInner))) / 2;
+  const upperLip = d(p(I.lipOuterTop), p(I.lipInnerTop));
+  const lowerLip = d(p(I.lipInnerBot), p(I.lipOuterBot));
+  const lipH = upperLip + lowerLip;
+  const eyeOpen = (d(p(I.leftEyeTop), p(I.leftEyeBot)) + d(p(I.rightEyeTop), p(I.rightEyeBot))) / 2;
+  const tilt = (canthal(p(I.leftOuter), p(I.leftInner)) + canthal(p(I.rightOuter), p(I.rightInner))) / 2;
   const jawAng = angleAt(p(I.jawLeft), p(I.chin), p(I.jawRight));
   const browGap = (d(p(I.browLeft), p(I.leftEyeTop)) + d(p(I.browRight), p(I.rightEyeTop))) / 2;
 
-  const wh = faceW / (faceH || 1);
+  const wh = faceW / faceH;
   const thirdsU = upper / thirds;
   const thirdsM = middle / thirds;
   const thirdsL = lower / thirds;
   const eyeSpace = inter / eyeAvg;
   const noseMouth = noseW / mouthW;
-  const jawCheek = jawW / (faceW || 1);
-  const mouthFace = mouthW / (faceW || 1);
+  const jawCheek = jawW / faceW;
+  const mouthFace = mouthW / faceW;
   const lipRatio = lipH / mouthW;
+  const lipBalance = upperLip / (lowerLip || 1);
   const eyeRatio = eyeOpen / eyeAvg;
-  const browRatio = browGap / (faceH || 1);
+  const browRatio = browGap / faceH;
 
   const jawIdeal = gender === "female" ? 0.74 : gender === "male" ? 0.86 : 0.8;
-  const jawSigma = 0.08;
   const whIdeal = gender === "female" ? 0.74 : 0.78;
+  const lipIdeal = gender === "female" ? 0.42 : gender === "male" ? 0.34 : 0.38;
+  const tiltIdeal = gender === "female" ? 7.2 : gender === "male" ? 4.8 : 6;
 
   const metrics: Metric[] = [
-    m("thirds_upper", "Upper third", "harmony", thirdsU, pct(thirdsU), bell(thirdsU, 0.33, 0.06)),
-    m("thirds_mid", "Middle third", "harmony", thirdsM, pct(thirdsM), bell(thirdsM, 0.28, 0.06)),
-    m("thirds_low", "Lower third", "harmony", thirdsL, pct(thirdsL), bell(thirdsL, 0.39, 0.06)),
-    m("eye_space", "Eye spacing", "harmony", eyeSpace, ratio(eyeSpace), bell(eyeSpace, 1.05, 0.16)),
-    m("nose_mouth", "Nose / mouth", "harmony", noseMouth, ratio(noseMouth), bell(noseMouth, 0.68, 0.12)),
-    m("face_wh", "Width / height", "harmony", wh, ratio(wh), bell(wh, whIdeal, 0.07)),
-    m("mouth_face", "Mouth / face", "features", mouthFace, ratio(mouthFace), bell(mouthFace, 0.4, 0.06)),
-    m("jaw_cheek", "Jaw / cheek", "structure", jawCheek, ratio(jawCheek), bell(jawCheek, jawIdeal, jawSigma)),
-    m("jaw_angle", "Jaw angle", "structure", jawAng, `${jawAng.toFixed(0)}°`, bell(jawAng, gender === "male" ? 124 : 132, 12)),
-    m("lower_third", "Chin length", "structure", thirdsL, pct(thirdsL), bell(thirdsL, gender === "male" ? 0.4 : 0.37, 0.05)),
-    m("canthal", "Canthal tilt", "features", tilt, `${tilt.toFixed(1)}°`, bell(tilt, 6.5, 4.2)),
-    m("lips", "Lip fullness", "features", lipRatio, ratio(lipRatio), bell(lipRatio, gender === "female" ? 0.32 : 0.26, 0.07)),
-    m("eye_open", "Eye aperture", "features", eyeRatio, ratio(eyeRatio), bell(eyeRatio, 0.32, 0.08)),
-    m("brow", "Brow height", "dimorphism", browRatio, ratio(browRatio), bell(browRatio, gender === "male" ? 0.055 : 0.072, 0.018)),
-    m("jaw_dim", "Jaw emphasis", "dimorphism", jawCheek, ratio(jawCheek), bell(jawCheek, jawIdeal, jawSigma * 0.9)),
-    m("tilt_dim", "Orbital tilt", "dimorphism", tilt, `${tilt.toFixed(1)}°`, bell(tilt, gender === "male" ? 5 : 7.5, 4)),
+    m("thirds_upper", "Upper third", "harmony", thirdsU, pct(thirdsU), bell(thirdsU, 0.33, 0.035), "Share of the face from hairline to brow. Near 33% is the even split."),
+    m("thirds_mid", "Middle third", "harmony", thirdsM, pct(thirdsM), bell(thirdsM, 0.28, 0.035), "Brow to the base of the nose. The mesh reads this a little shorter than a textbook third."),
+    m("thirds_low", "Lower third", "harmony", thirdsL, pct(thirdsL), bell(thirdsL, 0.39, 0.035), "Nose base to chin. A short or very long lower third pulls harmony down."),
+    m("eye_space", "Eye spacing", "harmony", eyeSpace, ratio(eyeSpace), bell(eyeSpace, 1, 0.09), "Gap between the eyes, in eye-widths. 1.00 means one eye fits between them."),
+    m("nose_mouth", "Nose / mouth", "harmony", noseMouth, ratio(noseMouth), bell(noseMouth, 0.66, 0.08), "Nose width against mouth width. Much wider or much narrower than the mouth scores lower."),
+    m("face_wh", "Width / height", "harmony", wh, ratio(wh), bell(wh, whIdeal, 0.045), "How wide the cheeks are compared with forehead-to-chin height."),
+    m("mouth_face", "Mouth / face", "features", mouthFace, ratio(mouthFace), bell(mouthFace, 0.38, 0.04), "Mouth width against cheek width."),
+    m("jaw_cheek", "Jaw / cheek", "structure", jawCheek, ratio(jawCheek), bell(jawCheek, jawIdeal, 0.05), "Jaw width against the cheeks. A softer jaw sits lower, a wider jaw sits higher for a male reading."),
+    m("jaw_angle", "Jaw angle", "structure", jawAng, `${jawAng.toFixed(0)}°`, bell(jawAng, gender === "male" ? 122 : 130, 7), "Angle under the chin. Sharper reads more structured. Very wide reads softer."),
+    m("lower_third", "Chin length", "structure", thirdsL, pct(thirdsL), bell(thirdsL, gender === "male" ? 0.4 : 0.37, 0.03), "How much of the face sits below the nose."),
+    m("canthal", "Canthal tilt", "features", tilt, `${tilt.toFixed(1)}°`, bell(tilt, tiltIdeal, 2.4), "Positive means the outer eye corner sits higher than the inner corner."),
+    m("lips", "Lip fullness", "features", lipRatio, ratio(lipRatio), bell(lipRatio, lipIdeal, 0.055), "Upper plus lower lip height, divided by mouth width. This is the vermillion, not the gap between closed lips."),
+    m("lip_balance", "Lip balance", "features", lipBalance, ratio(lipBalance), bell(lipBalance, gender === "female" ? 0.78 : 0.7, 0.12), "Upper lip height divided by lower lip height. The lower lip is usually a bit fuller."),
+    m("eye_open", "Eye aperture", "features", eyeRatio, ratio(eyeRatio), bell(eyeRatio, 0.3, 0.05), "How open the eyes are against their width."),
+    m("brow", "Brow height", "dimorphism", browRatio, ratio(browRatio), bell(browRatio, gender === "male" ? 0.05 : 0.07, 0.012), "Distance from brow to eyelid. Lower brows read more male."),
+    m("jaw_dim", "Jaw emphasis", "dimorphism", jawCheek, ratio(jawCheek), bell(jawCheek, jawIdeal, 0.045), "Same jaw ratio, scored against the shape expected for this profile."),
+    m("tilt_dim", "Orbital tilt", "dimorphism", tilt, `${tilt.toFixed(1)}°`, bell(tilt, tiltIdeal, 2.2), "Canthal tilt again, against a male or female target."),
   ];
 
+  return pack(
+    metrics,
+    gender === "other"
+      ? "Dimorphism uses a neutral midpoint. A weak feature pulls the pillar down instead of being averaged away."
+      : `Read as ${gender}. Lip fullness uses the lip itself, not the closed-mouth gap. One weak feature is enough to drop a pillar.`,
+  );
+}
+
+export function analyzeProfile(
+  landmarks: Pt[],
+  gender: Gender,
+  image: { w: number; h: number },
+  source: "depth" | "photo",
+): Report {
+  const p = (i: number) => toPx(landmarks[i], image.w, image.h);
+  if (landmarks.length < 400) {
+    throw new Error("The profile mesh was incomplete.");
+  }
+
+  const nose = p(I.noseTip);
+  const nasion = p(I.nasion);
+  const chin = p(I.chin);
+  const sub = p(I.subnasale);
+  const lip = p(I.lipOuterTop);
+  const lowerLip = p(I.lipOuterBot);
+  const glabella = p(I.glabella);
+  const brow = midpoint(p(I.browLeft), p(I.browRight));
+  const eye = midpoint(p(I.leftEyeTop), p(I.rightEyeTop));
+  const faceH = d(p(I.forehead), chin) || 1;
+
+  const midX = (p(I.leftCheek).x + p(I.rightCheek).x) / 2;
+  const sign = Math.sign(nose.x - midX) || 1;
+  const forward = (pt: Pt) => (source === "photo" ? sign * (pt.x - midX) : -(pt.z ?? 0));
+
+  const noseProj = (forward(nose) - forward(nasion)) / faceH;
+  const lipMid = midpoint(lip, lowerLip);
+  const chinProj = (forward(chin) - forward(lipMid)) / faceH;
+  const t = clamp01((lip.y - nose.y) / (chin.y - nose.y || 1));
+  const eline = forward(nose) + t * (forward(chin) - forward(nose));
+  const lipBehind = (eline - forward(lipMid)) / faceH;
+
+  const nasolabial =
+    source === "photo"
+      ? angleAt(nose, sub, lip)
+      : angle2(nose.z ?? 0, nose.y, sub.z ?? 0, sub.y, lip.z ?? 0, lip.y);
+  const convexity =
+    source === "photo"
+      ? angleAt(glabella, sub, chin)
+      : angle2(glabella.z ?? 0, glabella.y, sub.z ?? 0, sub.y, chin.z ?? 0, chin.y);
+  const browRidge = (forward(brow) - forward(eye)) / faceH;
+
+  const noseIdeal = gender === "female" ? 0.11 : gender === "male" ? 0.15 : 0.13;
+  const chinIdeal = gender === "female" ? -0.005 : gender === "male" ? 0.028 : 0.012;
+  const browIdeal = gender === "female" ? 0.004 : gender === "male" ? 0.02 : 0.01;
+  const nasoIdeal = gender === "female" ? 104 : gender === "male" ? 96 : 100;
+
+  const metrics: Metric[] = [
+    m("nose_proj", "Nose projection", "structure", noseProj, ratio(noseProj), bell(noseProj, noseIdeal, 0.04), "How far the nose tip comes forward of the brow. Too flat or too projected both drop."),
+    m("chin_proj", "Chin projection", "structure", chinProj, ratio(chinProj), bell(chinProj, chinIdeal, 0.028), "Chin against the lips. Positive means the chin sits further forward."),
+    m("nasolabial", "Nasolabial angle", "structure", nasolabial, `${nasolabial.toFixed(0)}°`, bell(nasolabial, nasoIdeal, 8), "Angle where the nose meets the upper lip. Very acute looks hooked. Very open looks upturned."),
+    m("convexity", "Facial convexity", "harmony", convexity, `${convexity.toFixed(0)}°`, bell(convexity, 168, 6), "Glabella to nose base to chin. Straighter profiles sit near 168°."),
+    m("eline", "Lips vs E-line", "harmony", lipBehind, ratio(lipBehind), bell(lipBehind, 0.01, 0.025), "Lips against the line from nose tip to chin. Near zero sits on the line. Positive sits behind it."),
+    m("brow_ridge", "Brow ridge", "dimorphism", browRidge, ratio(browRidge), bell(browRidge, browIdeal, 0.016), "How far the brow comes forward of the eye. A stronger ridge reads more male."),
+    m("chin_dim", "Chin emphasis", "dimorphism", chinProj, ratio(chinProj), bell(chinProj, chinIdeal, 0.022), "Chin projection scored again for this gender."),
+    m("lip_profile", "Lip projection", "features", lipBehind, ratio(lipBehind), bell(lipBehind, gender === "female" ? 0.0 : 0.016, 0.022), "Fuller, more forward lips score lower here if they cross the E-line."),
+  ];
+
+  return pack(
+    metrics,
+    source === "photo"
+      ? "Side profile measured on the second photo. The nose is treated as the forward point."
+      : "Side profile estimated from the depth in the front photo. Add a true side photo to replace this.",
+  );
+}
+
+function midpoint(a: Pt, b: Pt): Pt {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: ((a.z ?? 0) + (b.z ?? 0)) / 2 };
+}
+
+function clamp01(n: number) {
+  return Math.min(1, Math.max(0, n));
+}
+
+function pack(metrics: Metric[], note: string): Report {
   const pillars: Record<Pillar, number> = {
-    harmony: mean(metrics.filter((x) => x.pillar === "harmony").map((x) => x.score)),
-    structure: mean(metrics.filter((x) => x.pillar === "structure").map((x) => x.score)),
-    dimorphism: mean(metrics.filter((x) => x.pillar === "dimorphism").map((x) => x.score)),
-    features: mean(metrics.filter((x) => x.pillar === "features").map((x) => x.score)),
+    harmony: mix(metrics.filter((x) => x.pillar === "harmony").map((x) => x.score)),
+    structure: mix(metrics.filter((x) => x.pillar === "structure").map((x) => x.score)),
+    dimorphism: mix(metrics.filter((x) => x.pillar === "dimorphism").map((x) => x.score)),
+    features: mix(metrics.filter((x) => x.pillar === "features").map((x) => x.score)),
   };
-
-  const overall =
-    Math.round(
-      ((pillars.harmony * 1.25 + pillars.structure * 1.15 + pillars.dimorphism + pillars.features) / 4.4) * 10,
-    ) / 10;
-
+  const overall = mix([pillars.harmony, pillars.structure, pillars.dimorphism, pillars.features]);
   return {
     id: typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `scan-${Date.now()}`,
     createdAt: new Date().toISOString(),
@@ -188,10 +282,7 @@ export function analyzeFace(landmarks: Pt[], gender: Gender, image: { w: number;
     label: labelFor(overall),
     pillars,
     metrics,
-    note:
-      gender === "other"
-        ? "Dimorphism uses a neutral midpoint. Scores come only from this photo’s landmarks, not a template."
-        : `Dimorphism is tuned for a ${gender} reading. Every number is measured from this face, wherever it sits in the frame.`,
+    note,
   };
 }
 
@@ -202,8 +293,9 @@ function m(
   raw: number,
   display: string,
   score: number,
+  detail: string,
 ): Metric {
-  return { id, label, pillar, raw, display, score };
+  return { id, label, pillar, raw, display, score, detail };
 }
 
 function pct(n: number) {
@@ -211,5 +303,5 @@ function pct(n: number) {
 }
 
 function ratio(n: number) {
-  return n.toFixed(2);
+  return Number.isFinite(n) ? n.toFixed(2) : "—";
 }
